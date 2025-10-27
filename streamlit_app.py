@@ -1,12 +1,7 @@
 # app.py
 # -------------------------------------------------------------
-# Streamlit Math Mastery App — Minimal Viable Product (MVP)
+# Streamlit Math Mastery App — Final MVP (with latest requests)
 # Author: ChatGPT
-# Description:
-#   - 영역별 개념 퀴즈 → 오답 분석 → 취약영역 보강 추천 → 재평가
-#   - 학생/교사용 모드 지원 (간단 인증: 역할 + 이름 입력)
-#   - 데이터 저장: 세션 상태 + CSV 파일(옵션)
-#   - 시각화: 레이더(개념 숙달도), 히트맵(하위개념×정답률)
 # -------------------------------------------------------------
 
 import os
@@ -33,11 +28,10 @@ ITEMS_CSV = os.path.join(DATA_DIR, "items.csv")  # 선택: 외부 아이템 업�
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# =============== 유틸 ===============
+# =============== 유틸 & 스키마 ===============
 def _now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# --- Schema helpers (backward compatibility) ---
 REQUIRED_USER_COLS = ["user_id","user_name","role","grade","age","created_at"]
 
 @st.cache_data(show_spinner=False)
@@ -45,7 +39,7 @@ def _empty_users_df():
     return pd.DataFrame(columns=REQUIRED_USER_COLS)
 
 def load_users_df() -> pd.DataFrame:
-    """Load users.csv and migrate columns if the file was created with an older schema."""
+    """Load users.csv and migrate columns if file exists with older schema."""
     if os.path.exists(USERS_CSV):
         try:
             df = pd.read_csv(USERS_CSV)
@@ -53,19 +47,36 @@ def load_users_df() -> pd.DataFrame:
             df = _empty_users_df()
     else:
         df = _empty_users_df()
-    # add missing cols and reorder
     for c in REQUIRED_USER_COLS:
         if c not in df.columns:
             df[c] = np.nan
     df = df[REQUIRED_USER_COLS]
     return df
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+# 최초 파일 생성
+if not os.path.exists(RESPONSES_CSV):
+    pd.DataFrame(columns=[
+        "ts","user_id","user_name","role","area","subtopic","item_id","is_correct",
+        "response","response_time","error_tag","level","attempt_id"
+    ]).to_csv(RESPONSES_CSV, index=False, encoding="utf-8-sig")
+
+if not os.path.exists(USERS_CSV):
+    _empty_users_df().to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
+
+# =============== 세션 상태 ===============
+if "user" not in st.session_state:
+    st.session_state.user = {"user_id": None, "user_name": None, "role": "학생", "grade": None, "age": None}
+if "quiz" not in st.session_state:
+    st.session_state.quiz = {
+        "pool": [], "current_idx": 0, "start_ts": None, "attempt_id": None,
+        "area": None, "subtopics": [], "levels": ["L1","L2","L3"], "size": 8
+    }
+if "responses" not in st.session_state:
+    st.session_state.responses = []
+
+# =============== 시드 문항 ===============
 @st.cache_data(show_spinner=False)
 def load_seed_items() -> pd.DataFrame:
-    """샘플 문항 18개(대수/함수/기하/확통 각 3~5개). 실제 운영시 CSV 업로드로 대체.
-    컬럼: item_id, area, subtopic, level, time_hint, stem, choices, answer, explanation, error_tags
-    """
     seed = [
         # 대수
         {"item_id":"ALG-001","area":"대수","subtopic":"다항식 전개","level":"L1","time_hint":30,
@@ -81,6 +92,12 @@ def load_seed_items() -> pd.DataFrame:
         {"item_id":"ALG-004","area":"대수","subtopic":"등식의 변형","level":"L2","time_hint":40,
          "stem":"2x+5=19일 때 x를 구하시오.","choices":None,"answer":"7",
          "explanation":"2x=14 → x=7","error_tags":["절차오류"]},
+        {"item_id":"ALG-005","area":"대수","subtopic":"연립방정식","level":"L2","time_hint":60,
+         "stem":"x+y=7, x-y=1을 풀어 x,y를 구하시오.","choices":None,"answer":"(4,3)",
+         "explanation":"가감법으로 x=4,y=3","error_tags":["절차오류","계산실수"]},
+        {"item_id":"ALG-006","area":"대수","subtopic":"지수법칙","level":"L1","time_hint":40,
+         "stem":"a^2·a^3 = ?","choices":None,"answer":"a^5",
+         "explanation":"지수 더하기","error_tags":["개념미이해"]},
         # 함수
         {"item_id":"FUN-001","area":"함수","subtopic":"함수 개념","level":"L1","time_hint":40,
          "stem":"y=2x+1에서 x=3일 때 y의 값은?","choices":None,"answer":"7",
@@ -92,6 +109,12 @@ def load_seed_items() -> pd.DataFrame:
          "stem":"다음 중 함수가 아닌 것은?","choices":["x→x^2","x→|x|","원점대칭","원의 방정식 y=±√(r^2-x^2)"],
          "answer":"원의 방정식 y=±√(r^2-x^2)",
          "explanation":"x 하나에 y 두 개 → 대응 불가","error_tags":["개념미이해","문제해석"]},
+        {"item_id":"FUN-004","area":"함수","subtopic":"최대최소","level":"L3","time_hint":75,
+         "stem":"함수 f(x)=x^2-4x+5의 최솟값은?","choices":None,"answer":"1",
+         "explanation":"완전제곱식 (x-2)^2+1 → 최솟값 1","error_tags":["개념미이해"]},
+        {"item_id":"FUN-005","area":"함수","subtopic":"함수합성","level":"L3","time_hint":80,
+         "stem":"f(x)=2x, g(x)=x+3일 때 (f∘g)(2)의 값은?","choices":None,"answer":"10",
+         "explanation":"g(2)=5, f(5)=10","error_tags":["절차오류","계산실수"]},
         # 기하
         {"item_id":"GEO-001","area":"기하","subtopic":"삼각형 성질","level":"L1","time_hint":45,
          "stem":"삼각형의 내각의 합은?","choices":["90°","120°","180°","360°"],"answer":"180°",
@@ -102,6 +125,9 @@ def load_seed_items() -> pd.DataFrame:
         {"item_id":"GEO-003","area":"기하","subtopic":"닮음","level":"L2","time_hint":60,
          "stem":"닮음비가 2:3인 두 도형의 넓이비는?","choices":None,"answer":"4:9",
          "explanation":"넓이비 = 선분비^2","error_tags":["개념미이해"]},
+        {"item_id":"GEO-004","area":"기하","subtopic":"삼각비","level":"L2","time_hint":60,
+         "stem":"sin30°, cos60°, tan45°를 각각 쓰시오.","choices":None,"answer":"1/2, 1/2, 1",
+         "explanation":"표준각 삼각비","error_tags":["개념미이해","계산실수"]},
         # 확률과 통계
         {"item_id":"STA-001","area":"확률과 통계","subtopic":"경우의 수","level":"L1","time_hint":45,
          "stem":"동전을 두 번 던질 때 나올 수 있는 경우의 수는?","choices":None,"answer":"4",
@@ -112,34 +138,15 @@ def load_seed_items() -> pd.DataFrame:
         {"item_id":"STA-003","area":"확률과 통계","subtopic":"평균","level":"L1","time_hint":45,
          "stem":"데이터 2,4,6,8의 평균은?","choices":None,"answer":"5",
          "explanation":"(2+4+6+8)/4=20/4=5","error_tags":["계산실수"]},
-        # 심화 예시 더
-        {"item_id":"FUN-004","area":"함수","subtopic":"최대최소","level":"L3","time_hint":75,
-         "stem":"함수 f(x)=x^2-4x+5의 최솟값은?","choices":None,"answer":"1",
-         "explanation":"완전제곱식 (x-2)^2+1 → 최솟값 1","error_tags":["개념미이해"]},
-        {"item_id":"ALG-005","area":"대수","subtopic":"연립방정식","level":"L2","time_hint":60,
-         "stem":"x+y=7, x-y=1을 풀어 x,y를 구하시오.","choices":None,"answer":"(4,3)",
-         "explanation":"가감법으로 x=4,y=3","error_tags":["절차오류","계산실수"]},
-        {"item_id":"GEO-004","area":"기하","subtopic":"삼각비","level":"L2","time_hint":60,
-         "stem":"sin30°, cos60°, tan45°를 각각 쓰시오.","choices":None,"answer":"1/2, 1/2, 1",
-         "explanation":"표준각 삼각비","error_tags":["개념미이해","계산실수"]},
         {"item_id":"STA-004","area":"확률과 통계","subtopic":"표준편차","level":"L2","time_hint":70,
          "stem":"데이터 1,3,5의 표준편차(모표준편차 기준)를 구하시오.","choices":None,"answer":"~1.632",
          "explanation":"평균3, 분산[(4+0+4)/3]=8/3 → 표준편차≈√(2.666)=1.632","error_tags":["계산실수"]},
-        {"item_id":"ALG-006","area":"대수","subtopic":"지수법칙","level":"L1","time_hint":40,
-         "stem":"a^2·a^3 = ?","choices":None,"answer":"a^5",
-         "explanation":"지수 더하기","error_tags":["개념미이해"]},
-        {"item_id":"FUN-005","area":"함수","subtopic":"함수합성","level":"L3","time_hint":80,
-         "stem":"f(x)=2x, g(x)=x+3일 때 (f∘g)(2)의 값은?","choices":None,"answer":"10",
-         "explanation":"g(2)=5, f(5)=10","error_tags":["절차오류","계산실수"]},
     ]
-    df = pd.DataFrame(seed)
-    return df
+    return pd.DataFrame(seed)
 
 @st.cache_data(show_spinner=False)
 def load_items_from_csv(uploaded: pd.DataFrame | None) -> pd.DataFrame:
-    """CSV 업로드가 있으면 그걸 사용, 없으면 시드 사용."""
     if uploaded is not None:
-        # 필수 컬럼 체크
         required = {"item_id","area","subtopic","level","time_hint","stem","answer"}
         if not required.issubset(set(uploaded.columns)):
             st.warning("CSV 컬럼이 부족합니다. 시드 문항을 사용합니다.")
@@ -147,26 +154,7 @@ def load_items_from_csv(uploaded: pd.DataFrame | None) -> pd.DataFrame:
         return uploaded
     return load_seed_items()
 
-# 데이터 파일 초기화
-if not os.path.exists(RESPONSES_CSV):
-    pd.DataFrame(columns=[
-        "ts","user_id","user_name","role","area","subtopic","item_id","is_correct",
-        "response","response_time","error_tag","level","attempt_id"
-    ]).to_csv(RESPONSES_CSV, index=False, encoding="utf-8-sig")
-
-if not os.path.exists(USERS_CSV):
-    _empty_users_df().to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
-
-# =============== 세션 상태 ===============
-if "user" not in st.session_state:
-    st.session_state.user = {"user_id": None, "user_name": None, "role": None}
-if "quiz" not in st.session_state:
-    st.session_state.quiz = {
-        "pool": [], "current_idx": 0, "start_ts": None, "attempt_id": None,
-        "area": None, "subtopics": [], "levels": ["L1","L2","L3"], "size": 8
-    }
-
-# =============== 로그인/역할 선택 ===============
+# =============== 상단/사이드바 ===============
 with st.sidebar:
     st.header("로그인")
     user_name = st.text_input("이름(혹은 별칭)")
@@ -176,12 +164,11 @@ with st.sidebar:
         if not user_name:
             st.error("이름을 입력하세요.")
         else:
-            role = "학생"
+            role = "학생"  # 고정
             uid = st.session_state.user.get("user_id") or str(uuid.uuid4())
             age_val = int(age_str) if age_str.isdigit() else None
             grade_val = None if grade == "선택안함" else grade
             st.session_state.user = {"user_id": uid, "user_name": user_name, "role": role, "grade": grade_val, "age": age_val}
-            # 사용자 기록 저장(중복 허용)
             users_df = load_users_df()
             new_row = {
                 "user_id": uid,
@@ -195,7 +182,6 @@ with st.sidebar:
             users_df.to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
             st.success(f"환영합니다, {user_name} (학생)")
 
-# =============== 상단 헤더 ===============
 st.title(APP_TITLE)
 user = st.session_state.user
 if user["user_name"]:
@@ -208,10 +194,10 @@ if user["user_name"]:
 # =============== 탭 구성 ===============
 TABS = st.tabs(["퀴즈", "결과/보강", "재평가", "교사 대시보드", "문항 업로드"])
 
-# =============== 문항 로드(업로드 지원) ===============
+# =============== 문항 업로드 탭 ===============
 with TABS[4]:
     st.subheader("문항 업로드 (선택)")
-    info = st.write("CSV 업로드 시 컬럼 예시: item_id, area, subtopic, level, time_hint, stem, choices(json옵션), answer, explanation, error_tags(json옵션)")
+    st.write("CSV 컬럼 예시: item_id, area, subtopic, level, time_hint, stem, choices(json옵션), answer, explanation, error_tags(json옵션)")
     uploaded_file = st.file_uploader("CSV 업로드", type=["csv"])
     uploaded_df = None
     if uploaded_file:
@@ -223,13 +209,11 @@ with TABS[4]:
             st.error(f"업로드 실패: {e}")
 
 items_df = load_items_from_csv(uploaded_df)
-
-# choices/error_tags가 문자열(JSON)인 경우 파싱
 for col in ["choices","error_tags"]:
     if col in items_df.columns:
         items_df[col] = items_df[col].apply(lambda x: json.loads(x) if isinstance(x, str) and x.strip().startswith("[") else x)
 
-# =============== 함수: 퀴즈 세트 만들기 ===============
+# =============== 유틸: 퀴즈 풀 생성 ===============
 def build_quiz_pool(df: pd.DataFrame, area: str, levels: List[str], size: int) -> List[Dict[str,Any]]:
     subset = df[(df["area"]==area) & (df["level"].isin(levels))].copy()
     if subset.empty:
@@ -270,8 +254,7 @@ with TABS[0]:
     if quiz["pool"]:
         q = quiz["pool"][quiz["current_idx"]]
         st.markdown(f"#### Q{quiz['current_idx']+1}. {q['stem']}")
-        # 보기
-        user_answer = None
+        # 보기/입력
         if q.get("choices"):
             user_answer = st.radio("정답 선택", q["choices"], index=None, key=f"choice_{quiz['attempt_id']}_{quiz['current_idx']}")
         else:
@@ -281,19 +264,16 @@ with TABS[0]:
         submit = st.button("제출", type="primary")
 
         if submit:
-            # 정오 판정 (간단 문자열 비교: 공백 제거/소문자)
             ans = str(user_answer).strip()
             gold = str(q["answer"]).strip()
             norm = lambda s: s.replace(" ", "").lower()
             is_correct = norm(ans) == norm(gold)
 
-            # 반응시간
             resp_time = None
             if include_timer and quiz["start_ts"]:
                 resp_time = round(time.time() - quiz["start_ts"], 2)
-                quiz["start_ts"] = time.time()  # 다음 문항 타이머 재시작
+                quiz["start_ts"] = time.time()
 
-            # 저장
             user_id = user.get("user_id") or "anon"
             user_name = user.get("user_name") or "anon"
             role = user.get("role") or "학생"
@@ -313,12 +293,8 @@ with TABS[0]:
                 "attempt_id": quiz["attempt_id"],
             }
 
-            # session 저장
-            if "responses" not in st.session_state:
-                st.session_state.responses = []
             st.session_state.responses.append(row)
 
-            # 파일 저장 (옵션)
             try:
                 old = pd.read_csv(RESPONSES_CSV)
                 old.loc[len(old)] = row
@@ -326,7 +302,6 @@ with TABS[0]:
             except Exception as e:
                 st.warning(f"로컬 저장 실패(세션에는 저장됨): {e}")
 
-            # 피드백
             if is_correct:
                 st.success("정답입니다! 🎉")
             else:
@@ -334,15 +309,13 @@ with TABS[0]:
                 with st.expander("해설 보기"):
                     st.write(q.get("explanation","(해설 준비중)"))
 
-            # 다음 문항으로
             if quiz["current_idx"] < len(quiz["pool"]) - 1:
                 quiz["current_idx"] += 1
                 st.rerun()
             else:
                 st.success("퀴즈 종료! 결과/보강 탭 또는 아래에서 전체 해설을 확인하세요.")
-                # 전체 해설 보기: 현재 세트의 모든 문항/정답/해설
+                # 전체 해설: 이번 시도 전체 문항 요약
                 with st.expander("📚 이번 세트 전체 해설 보기", expanded=True):
-                    # 해당 시도(attempt_id) 기준으로 학생의 정오 여부 매칭
                     resp_list = st.session_state.get("responses", [])
                     attempt_id = quiz["attempt_id"]
                     resp_map = {r["item_id"]: r for r in resp_list if r.get("attempt_id") == attempt_id}
@@ -354,33 +327,24 @@ with TABS[0]:
                         st.write(f"정답: {itm['answer']}")
                         st.info(itm.get("explanation", "(해설 준비중)"))
 
-# =============== 지표 계산 함수 ===============
+# =============== 지표 함수 ===============
 def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
-    """개념(하위주제)별 숙달 스코어 S_k 계산.
-    S_k = 0.7*정답률 + 0.2*속도지수 + 0.1*최근성 가중 (간단화)
-    속도지수는 반응시간 중앙값으로 추정 → 빠를수록 높게(상대 정규화)
-    최근성은 최근 7일 응답 비중으로 근사.
-    """
     if df.empty:
-        return pd.DataFrame(columns=["subtopic","acc","speed_idx","recency","S_k"])
+        return pd.DataFrame(columns=["subtopic","acc","speed_idx","recency","S_k","n"])
 
-    # 정답률
     grp = df.groupby("subtopic").agg(
         acc=("is_correct","mean"),
         n=("is_correct","count"),
         med_rt=("response_time","median")
     ).reset_index()
 
-    # 속도지수: 반응시간 중앙값을 0~1로 정규화(상대). 빠를수록 1에 가깝게.
     med = grp["med_rt"].fillna(grp["med_rt"].median())
     if med.nunique() == 1:
         speed_idx = pd.Series([0.5]*len(grp), index=grp.index)
     else:
-        # 역스케일링: (max - x) / (max - min)
         speed_idx = (med.max() - med) / (med.max() - med.min())
     grp["speed_idx"] = speed_idx
 
-    # 최근성 가중(최근 7일)
     df["ts_dt"] = pd.to_datetime(df["ts"], errors="coerce")
     cutoff = pd.Timestamp.now() - pd.Timedelta(days=7)
     recent_mask = df["ts_dt"] >= cutoff
@@ -395,7 +359,6 @@ def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
 # =============== 탭2: 결과/보강 ===============
 with TABS[1]:
     st.subheader("결과 리포트 & 보강 제안")
-    # 현재 사용자 응답만 필터
     try:
         all_resp = pd.read_csv(RESPONSES_CSV)
     except Exception:
@@ -414,10 +377,7 @@ with TABS[1]:
         with col1:
             st.markdown("**하위개념별 지표**")
             g = mastery_scores(mine)
-            st.dataframe(g[["subtopic","acc","speed_idx","recency","S_k"]].round(3))
-
-            # 레이더 차트: altair는 레이더 직접 지원X → 극좌표 흉내
-            # 간단하게 수평바로 대체 + 히트맵 병행(실서비스는 plotly radar 추천)
+            st.dataframe(g[["subtopic","acc","speed_idx","recency","S_k","n"]].round(3))
             bar = alt.Chart(g).mark_bar().encode(
                 y=alt.Y('subtopic:N', sort='-x', title='하위개념'),
                 x=alt.X('S_k:Q', scale=alt.Scale(domain=[0,1]), title='숙달스코어(0~1)'),
@@ -434,7 +394,6 @@ with TABS[1]:
             ).properties(height=300)
             st.altair_chart(heat, use_container_width=True)
 
-        # 취약 영역 도출
         weak = g[g["S_k"] < 0.75].sort_values("S_k")
         st.markdown("### 취약영역 제안")
         if weak.empty:
@@ -443,7 +402,6 @@ with TABS[1]:
             for _, row in weak.iterrows():
                 sub = row['subtopic']
                 st.warning(f"**{sub}** · 숙달 {row['S_k']:.2f} — 보강 권장")
-                # 해당 하위개념의 대표 문항 1~2개와 해설(요약)
                 sample = items_df[items_df["subtopic"]==sub].head(2)
                 for __, it in sample.iterrows():
                     with st.expander(f"보강 카드: {it['item_id']} — {it['stem'][:50]}..."):
@@ -451,7 +409,6 @@ with TABS[1]:
                         st.info(it.get("explanation","(해설 준비중)"))
                         st.write("**연습 문항 제안**: 동일/유사 유형 2~3개를 추가하세요.")
 
-        # 오류 유형 통계
         st.markdown("### 오류 유형 요약")
         err = mine.dropna(subset=["error_tag"])  
         if err.empty:
@@ -460,7 +417,7 @@ with TABS[1]:
             cnt = err.groupby("error_tag").size().reset_index(name="count").sort_values("count", ascending=False)
             st.dataframe(cnt)
 
-# =============== 탭3: 재평가 모드 ===============
+# =============== 탭3: 재평가 ===============
 with TABS[2]:
     st.subheader("재평가 (취약영역만)")
     if user["user_name"]:
@@ -525,62 +482,58 @@ with TABS[2]:
                                 with st.expander("해설"):
                                     st.write(it.get("explanation","(해설 준비중)"))
     else:
-        st.info("좌측에서 이름/역할을 입력하세요.")
+        st.info("좌측에서 이름/학년을 입력하세요.")
 
-# =============== 탭4: 교사 대시보드 ===============
+# =============== 탭4: 교사 대시보드(항상 접근가능) ===============
 with TABS[3]:
     st.subheader("교사 대시보드")
-    # 역할과 무관하게 항상 열람 가능하도록 변경
     try:
         df = pd.read_csv(RESPONSES_CSV)
     except Exception:
         df = pd.DataFrame()
+
     if df.empty:
         st.warning("응답 데이터가 없습니다.")
     else:
-        c1,c2,c3 = st.columns(3)
-            with c1:
-                st.metric("총 응답 수", len(df))
-            with c2:
-                st.metric("전체 정답률", f"{100*df['is_correct'].mean():.1f}%")
-            with c3:
-                st.metric("최근 기록 시각", df['ts'].iloc[-1])
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("총 응답 수", len(df))
+        with c2:
+            st.metric("전체 정답률", f"{100*df['is_correct'].mean():.1f}%")
+        with c3:
+            st.metric("최근 기록 시각", df['ts'].iloc[-1] if 'ts' in df.columns and not df.empty else '-')
 
-            # 반/학생 필터
-            stu_list = sorted(df['user_name'].dropna().unique().tolist())
-            stu_sel = st.multiselect("학생 선택(빈칸=전체)", stu_list)
-            if stu_sel:
-                df = df[df['user_name'].isin(stu_sel)]
+        stu_list = sorted(df['user_name'].dropna().unique().tolist())
+        stu_sel = st.multiselect("학생 선택(빈칸=전체)", stu_list)
+        if stu_sel:
+            df = df[df['user_name'].isin(stu_sel)]
 
-            # 상위 오답 개념 TOP N
-            topn = st.slider("오답 상위 N", 3, 15, 7)
-            wrong = df[df['is_correct']==0]
-            if wrong.empty:
-                st.success("오답 데이터가 거의 없습니다. 👍")
-            else:
-                top = wrong.groupby(['area','subtopic']).size().reset_index(name='cnt').sort_values('cnt', ascending=False).head(topn)
-                st.markdown("**오답 빈발 개념 TOP N**")
-                st.dataframe(top)
+        topn = st.slider("오답 상위 N", 3, 15, 7)
+        wrong = df[df['is_correct']==0]
+        if wrong.empty:
+            st.success("오답 데이터가 거의 없습니다. 👍")
+        else:
+            top = wrong.groupby(['area','subtopic']).size().reset_index(name='cnt').sort_values('cnt', ascending=False).head(topn)
+            st.markdown("**오답 빈발 개념 TOP N**")
+            st.dataframe(top)
 
-            # 학생별/개념별 히트맵
-            st.markdown("### 학생×하위개념 정답률 히트맵")
-            piv = df.pivot_table(index='user_name', columns='subtopic', values='is_correct', aggfunc='mean')
-            piv = piv.reset_index().melt('user_name', var_name='subtopic', value_name='acc')
-            heat = alt.Chart(piv).mark_rect().encode(
-                y=alt.Y('user_name:N', sort='-x', title='학생'),
-                x=alt.X('subtopic:N', title='하위개념'),
-                color=alt.Color('acc:Q', scale=alt.Scale(domain=[0,1]), title='정답률'),
-                tooltip=['user_name','subtopic',alt.Tooltip('acc:Q', format='.2f')]
-            ).properties(height=300)
-            st.altair_chart(heat, use_container_width=True)
+        st.markdown("### 학생×하위개념 정답률 히트맵")
+        piv = df.pivot_table(index='user_name', columns='subtopic', values='is_correct', aggfunc='mean')
+        piv = piv.reset_index().melt('user_name', var_name='subtopic', value_name='acc')
+        heat = alt.Chart(piv).mark_rect().encode(
+            y=alt.Y('user_name:N', sort='-x', title='학생'),
+            x=alt.X('subtopic:N', title='하위개념'),
+            color=alt.Color('acc:Q', scale=alt.Scale(domain=[0,1]), title='정답률'),
+            tooltip=['user_name','subtopic',alt.Tooltip('acc:Q', format='.2f')]
+        ).properties(height=300)
+        st.altair_chart(heat, use_container_width=True)
 
-            # CSV 다운로드
-            st.download_button(
-                "응답 원시데이터 CSV 다운로드",
-                data=df.to_csv(index=False, encoding='utf-8-sig'),
-                file_name=f"responses_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime='text/csv'
-            )
+        st.download_button(
+            "응답 원시데이터 CSV 다운로드",
+            data=df.to_csv(index=False, encoding='utf-8-sig'),
+            file_name=f"responses_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime='text/csv'
+        )
 
 # =============== 푸터 ===============
 st.divider()
