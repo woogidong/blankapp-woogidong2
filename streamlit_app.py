@@ -1,4 +1,3 @@
-import streamlit as st
 # app.py
 # -------------------------------------------------------------
 # Streamlit Math Mastery App — Minimal Viable Product (MVP)
@@ -531,17 +530,15 @@ with TABS[2]:
 # =============== 탭4: 교사 대시보드 ===============
 with TABS[3]:
     st.subheader("교사 대시보드")
-    if user.get("role") != "교사":
-        st.info("좌측에서 역할을 '교사'로 선택하면 대시보드를 볼 수 있습니다.")
+    # 역할과 무관하게 항상 열람 가능하도록 변경
+    try:
+        df = pd.read_csv(RESPONSES_CSV)
+    except Exception:
+        df = pd.DataFrame()
+    if df.empty:
+        st.warning("응답 데이터가 없습니다.")
     else:
-        try:
-            df = pd.read_csv(RESPONSES_CSV)
-        except Exception:
-            df = pd.DataFrame()
-        if df.empty:
-            st.warning("응답 데이터가 없습니다.")
-        else:
-            c1,c2,c3 = st.columns(3)
+        c1,c2,c3 = st.columns(3)
             with c1:
                 st.metric("총 응답 수", len(df))
             with c2:
