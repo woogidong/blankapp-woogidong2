@@ -50,7 +50,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-APP_TITLE = "개념 마스터 (LaTeX+CSV 안전파서)"
+APP_TITLE = "수학 개념 진단 클리닉"
 DATA_DIR = "data"
 RESPONSES_CSV = os.path.join(DATA_DIR, "responses.csv")
 USERS_CSV = os.path.join(DATA_DIR, "users.csv")
@@ -401,12 +401,8 @@ with TABS[0]:
             except Exception as e:
                 st.warning(f"로컬 저장 실패(세션에는 저장됨): {e}")
 
-            if is_correct:
-                st.success("정답입니다! 🎉")
-            else:
-                st.error("오답입니다.")
-                with st.expander("해설 보기"):
-                    render_latex_or_text(q.get("explanation"))
+            # 즉시 정답/오답 피드백 제거: 사용자 요청에 따라 매 풀이마다 결과를 표시하지 않음
+            # (결과는 세트 종료 시 전체 해설에서 확인 가능)
 
             # 다음 문항 or 종료
             if quiz["current_idx"] < len(quiz["pool"]) - 1:
