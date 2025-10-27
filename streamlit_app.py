@@ -98,7 +98,8 @@ if "user" not in st.session_state:
 if "quiz" not in st.session_state:
     st.session_state.quiz = {
         "pool": [], "current_idx": 0, "start_ts": None, "attempt_id": None,
-        "area": None, "levels": ["L1","L2","L3"], "size": 8
+        "area": None, "levels": ["L1","L2","L3"], "size": 8,
+        "show_results": False
     }
 if "responses" not in st.session_state:
     st.session_state.responses = []
@@ -324,6 +325,7 @@ with TABS[0]:
             "area": area,
             "levels": levels,
             "size": size,
+            "show_results": False,
         })
         st.success(f"퀴즈 생성: {len(st.session_state.quiz['pool'])}문항")
 
@@ -431,10 +433,11 @@ with TABS[0]:
                     "resp_map": resp_map,
                 }
 
-                # 세트 결과를 세션에 저장하고 문제 풀 영역을 비움
-                st.session_state.quiz["last_report"] = last_report
-                st.session_state.quiz["pool"] = []
-                st.session_state.quiz["current_idx"] = 0
+                    # 세트 결과를 세션에 저장하고 문제 풀 영역을 비움
+                    st.session_state.quiz["last_report"] = last_report
+                    st.session_state.quiz["pool"] = []
+                    st.session_state.quiz["current_idx"] = 0
+                    st.session_state.quiz["show_results"] = True
 
                 # 축하 효과
                 try:
@@ -444,8 +447,8 @@ with TABS[0]:
 
                 # 강제 리렌더로 깨끗한 화면에서 결과를 표시하도록 함
                 st.experimental_rerun()
-    # 퀴즈 풀이 영역이 비어있고 이전 세트 결과가 있으면 결과 리포트 표시
-    elif not quiz.get("pool") and quiz.get("last_report"):
+    # 퀴즈 풀이 영역이 비어있고 이전 세트 결과가 있거나 show_results가 켜져 있으면 결과 리포트 표시
+    elif (not quiz.get("pool") and quiz.get("last_report")) or quiz.get("show_results"):
         rpt = quiz["last_report"]
         st.subheader("이번 세트 결과")
         c1, c2, c3 = st.columns(3)
