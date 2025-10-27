@@ -558,7 +558,15 @@ with TABS[1]:
                             "show_results": False,
                         })
                         st.success(f"보충학습 {sub} 세트를 시작합니다 ({len(pool)}문항)")
-                        st.experimental_rerun()
+                        try:
+                            st.experimental_rerun()
+                        except Exception:
+                            # 일부 환경에서 experimental_rerun이 없거나 동작하지 않을 수 있음
+                            # 안전하게 현재 실행 중단하여 UI가 재렌더되도록 함
+                            try:
+                                st.stop()
+                            except Exception:
+                                pass
 
 # ================== Tab 3: Teacher Dashboard (Always visible) ==================
 with TABS[2]:
@@ -622,3 +630,27 @@ with TABS[4]:
         for term, defi in matches.items():
             st.markdown(f"### {term}")
             st.write(defi)
+
+    st.markdown("---")
+    st.markdown("### 용어 등록")
+    with st.form("add_term_form"):
+        new_term = st.text_input("등록할 용어")
+        new_def = st.text_area("정의 입력")
+        overwrite = st.checkbox("기존 항목이 있으면 덮어쓰기", value=False)
+        add_submitted = st.form_submit_button("용어 등록")
+        if add_submitted:
+            if not new_term or not new_def:
+                st.error("용어와 정의를 모두 입력하세요.")
+            else:
+                current = load_terms()
+                if (new_term in current) and (not overwrite):
+                    st.warning("이미 존재하는 용어입니다. 덮어쓰려면 '기존 항목이 있으면 덮어쓰기'를 체크하세요.")
+                else:
+                    current[new_term] = new_def
+                    try:
+                        with open(TERMS_JSON, "w", encoding="utf-8") as f:
+                            json.dump(current, f, ensure_ascii=False, indent=2)
+                        st.success(f"용어 '{new_term}' 이(가) 사전에 등록되었습니다.")
+                        terms = current
+                    except Exception as e:
+                        st.error(f"용어 저장 실패: {e}")
