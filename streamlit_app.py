@@ -20,7 +20,7 @@ import altair as alt
 import streamlit as st
 
 # ================== App Config ==================
-st.set_page_config(page_title="개념 마스터 (LaTeX+CSV 안전파서)", layout="wide")
+st.set_page_config(page_title="수학 개념 진단 클리닉", layout="wide")
 
 # ====== Custom button / UI styling ======
 st.markdown(
