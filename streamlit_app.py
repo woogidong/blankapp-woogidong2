@@ -433,6 +433,9 @@ with TABS[0]:
                         is_c = r.get("is_correct") == 1
                         icon = "✅" if is_c else "❌"
                         st.markdown(f"**{i}.** {icon}")
+                        # 하위개념(subtopic) 표기
+                        sub = itm.get("subtopic") or "-"
+                        st.markdown(f"**하위개념:** {sub}")
                         render_latex_or_text(itm.get("stem"), label="문제")
                         render_latex_or_text(itm.get("answer"), label="정답")
                         render_latex_or_text(itm.get("explanation"), label="해설")
@@ -498,6 +501,15 @@ with TABS[1]:
             else:
                 cnt = err.groupby("error_tag").size().reset_index(name="count").sort_values("count", ascending=False)
                 st.dataframe(cnt)
+
+        # 최근 오답 목록 (subtopic 포함)
+        st.markdown("**최근 오답 문항 (최대 20개)**")
+        wrong = mine[mine["is_correct"] == 0].sort_values("ts", ascending=False)
+        if wrong.empty:
+            st.caption("최근 오답이 없습니다. 계속 풀어보세요!")
+        else:
+            display_cols = [c for c in ["ts", "item_id", "area", "subtopic", "response", "error_tag"] if c in wrong.columns]
+            st.dataframe(wrong[display_cols].head(20).reset_index(drop=True))
 
 # ================== Tab 3: Teacher Dashboard (Always visible) ==================
 with TABS[2]:
