@@ -20,7 +20,7 @@ import streamlit as st
 # =============== 기본 설정 ===============
 st.set_page_config(page_title="개념 마스터 (MVP)", layout="wide")
 
-APP_TITLE = "개념 마스터 (MVP)"
+APP_TITLE = "수학 개념 진단평가"
 DATA_DIR = "data"
 RESPONSES_CSV = os.path.join(DATA_DIR, "responses.csv")
 USERS_CSV = os.path.join(DATA_DIR, "users.csv")
@@ -80,51 +80,51 @@ def load_seed_items() -> pd.DataFrame:
     seed = [
         # 대수
         {"item_id":"ALG-001","area":"대수","subtopic":"다항식 전개","level":"L1","time_hint":30,
-         "stem":"(x+2)(x-3)를 전개하시오.","choices":None,"answer":"x^2 - x - 6",
-         "explanation":"분배법칙: x*(x-3)+2*(x-3)=x^2-3x+2x-6=x^2-x-6",
+         "stem":"$(x+2)(x-3)$를 전개하시오.","choices":None,"answer":"x^2 - x - 6",
+         "explanation":"분배법칙: $x*(x-3)+2*(x-3)=x^2-3x+2x-6=x^2-x-6$",
          "error_tags":["절차오류","계산실수"]},
         {"item_id":"ALG-002","area":"대수","subtopic":"인수분해","level":"L1","time_hint":35,
-         "stem":"x^2-5x+6을 인수분해 하시오.","choices":None,"answer":"(x-2)(x-3)",
+         "stem":"$x^2-5x+6$을 인수분해 하시오.","choices":None,"answer":"$(x-2)(x-3)$",
          "explanation":"근의 합 5, 곱 6 → 2와 3","error_tags":["개념미이해"]},
         {"item_id":"ALG-003","area":"대수","subtopic":"인수분해","level":"L2","time_hint":45,
-         "stem":"x^2+7x+10의 두 근을 구하시오.","choices":None,"answer":"-5, -2",
+         "stem":"$x^2+7x+10$의 두 근을 구하시오.","choices":None,"answer":"-5, -2",
          "explanation":"곱이 10, 합이 7 → (-5),(-2)","error_tags":["개념미이해","계산실수"]},
         {"item_id":"ALG-004","area":"대수","subtopic":"등식의 변형","level":"L2","time_hint":40,
-         "stem":"2x+5=19일 때 x를 구하시오.","choices":None,"answer":"7",
-         "explanation":"2x=14 → x=7","error_tags":["절차오류"]},
+         "stem":"$2x+5=19$일 때 x를 구하시오.","choices":None,"answer":"7",
+         "explanation":"$2x=14$ → $x=7$","error_tags":["절차오류"]},
         {"item_id":"ALG-005","area":"대수","subtopic":"연립방정식","level":"L2","time_hint":60,
-         "stem":"x+y=7, x-y=1을 풀어 x,y를 구하시오.","choices":None,"answer":"(4,3)",
-         "explanation":"가감법으로 x=4,y=3","error_tags":["절차오류","계산실수"]},
+         "stem":"$x+y=7$, $x-y=1$을 풀어 $x$,$y$를 구하시오.","choices":None,"answer":"(4,3)",
+         "explanation":"가감법으로 $x=4$,$y=3$","error_tags":["절차오류","계산실수"]},
         {"item_id":"ALG-006","area":"대수","subtopic":"지수법칙","level":"L1","time_hint":40,
-         "stem":"a^2·a^3 = ?","choices":None,"answer":"a^5",
+         "stem":"$a^2·a^3$ = ?","choices":None,"answer":"$a^5$",
          "explanation":"지수 더하기","error_tags":["개념미이해"]},
         # 함수
         {"item_id":"FUN-001","area":"함수","subtopic":"함수 개념","level":"L1","time_hint":40,
-         "stem":"y=2x+1에서 x=3일 때 y의 값은?","choices":None,"answer":"7",
+         "stem":"$y=2x+1$에서 $x=3$일 때 $y$의 값은?","choices":None,"answer":"7",
          "explanation":"대입 계산","error_tags":["계산실수"]},
         {"item_id":"FUN-002","area":"함수","subtopic":"일차함수 그래프","level":"L2","time_hint":60,
-         "stem":"y=3x-2의 그래프의 기울기는?","choices":["-2","0","3","2/3"],"answer":"3",
-         "explanation":"y=mx+b에서 m=3","error_tags":["개념미이해"]},
+         "stem":"$y=3x-2$의 그래프의 기울기는?","choices":["-2","0","3","2/3"],"answer":"3",
+         "explanation":"$y=mx+b$에서 $m=3$","error_tags":["개념미이해"]},
         {"item_id":"FUN-003","area":"함수","subtopic":"함수와 대응","level":"L2","time_hint":60,
-         "stem":"다음 중 함수가 아닌 것은?","choices":["x→x^2","x→|x|","원점대칭","원의 방정식 y=±√(r^2-x^2)"],
-         "answer":"원의 방정식 y=±√(r^2-x^2)",
-         "explanation":"x 하나에 y 두 개 → 대응 불가","error_tags":["개념미이해","문제해석"]},
+         "stem":"다음 중 함수가 아닌 것은?","choices":["$x$→$x^2$","$x$→$|x|$","원점대칭","원의 방정식 $y=±√(r^2-x^2)$"],
+         "answer":"원의 방정식 $y=±√(r^2-x^2)$",
+         "explanation":"$x$ 하나에 $y$ 두 개 → 대응 불가","error_tags":["개념미이해","문제해석"]},
         {"item_id":"FUN-004","area":"함수","subtopic":"최대최소","level":"L3","time_hint":75,
-         "stem":"함수 f(x)=x^2-4x+5의 최솟값은?","choices":None,"answer":"1",
-         "explanation":"완전제곱식 (x-2)^2+1 → 최솟값 1","error_tags":["개념미이해"]},
+         "stem":"함수 $f(x)=x^2-4x+5$의 최솟값은?","choices":None,"answer":"1",
+         "explanation":"완전제곱식 $(x-2)^2+1$ → 최솟값 1","error_tags":["개념미이해"]},
         {"item_id":"FUN-005","area":"함수","subtopic":"함수합성","level":"L3","time_hint":80,
-         "stem":"f(x)=2x, g(x)=x+3일 때 (f∘g)(2)의 값은?","choices":None,"answer":"10",
-         "explanation":"g(2)=5, f(5)=10","error_tags":["절차오류","계산실수"]},
+         "stem":"$f(x)=2x$, $g(x)=x+3$일 때 $(f∘g)(2)$의 값은?","choices":None,"answer":"10",
+         "explanation":"$g(2)=5$, $f(5)=10$","error_tags":["절차오류","계산실수"]},
         # 기하
         {"item_id":"GEO-001","area":"기하","subtopic":"삼각형 성질","level":"L1","time_hint":45,
          "stem":"삼각형의 내각의 합은?","choices":["90°","120°","180°","360°"],"answer":"180°",
          "explanation":"기본 성질","error_tags":["개념미이해"]},
         {"item_id":"GEO-002","area":"기하","subtopic":"피타고라스","level":"L1","time_hint":45,
          "stem":"직각삼각형에서 빗변이 13, 한 변이 5일 때 다른 변은?","choices":None,"answer":"12",
-         "explanation":"13^2-5^2=169-25=144 → 12","error_tags":["계산실수"]},
+         "explanation":"$13^2-5^2=169-25=144$ → 12","error_tags":["계산실수"]},
         {"item_id":"GEO-003","area":"기하","subtopic":"닮음","level":"L2","time_hint":60,
          "stem":"닮음비가 2:3인 두 도형의 넓이비는?","choices":None,"answer":"4:9",
-         "explanation":"넓이비 = 선분비^2","error_tags":["개념미이해"]},
+         "explanation":"넓이비 = $선분비^2$","error_tags":["개념미이해"]},
         {"item_id":"GEO-004","area":"기하","subtopic":"삼각비","level":"L2","time_hint":60,
          "stem":"sin30°, cos60°, tan45°를 각각 쓰시오.","choices":None,"answer":"1/2, 1/2, 1",
          "explanation":"표준각 삼각비","error_tags":["개념미이해","계산실수"]},
@@ -537,4 +537,4 @@ with TABS[3]:
 
 # =============== 푸터 ===============
 st.divider()
-st.caption("ⓒ 개념 마스터(MVP) — Streamlit 샘플. 실제 운영 시 계정/권한, 보안, 난이도 보정, 대규모 문항은행 등을 확장하세요.")
+st.caption("ⓒ AI융합교육전공 이동욱 — Streamlit 샘플. 실제 운영 시 계정/권한, 보안, 난이도 보정, 대규모 문항은행 등을 확장하세요.")
