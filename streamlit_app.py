@@ -133,7 +133,7 @@ if not os.path.exists(RESPONSES_CSV):
     ]).to_csv(RESPONSES_CSV, index=False, encoding="utf-8-sig")
 
 if not os.path.exists(USERS_CSV):
-    pd.DataFrame(columns=["user_id","user_name","role","created_at"]).to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
+    pd.DataFrame(columns=["user_id","user_name","role","grade","age","created_at"]).to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
 
 # =============== 세션 상태 ===============
 if "user" not in st.session_state:
@@ -146,26 +146,34 @@ if "quiz" not in st.session_state:
 
 # =============== 로그인/역할 선택 ===============
 with st.sidebar:
-    st.header("로그인 / 역할")
-    role = st.selectbox("역할 선택", ["학생","교사"], index=0)
+    st.header("로그인")
     user_name = st.text_input("이름(혹은 별칭)")
+    grade = st.selectbox("학년(선택)", ["선택안함","중1","중2","중3","고1","고2","고3"], index=0)
+    age_str = st.text_input("나이(선택, 숫자)", "")
     if st.button("확인/저장", use_container_width=True):
         if not user_name:
             st.error("이름을 입력하세요.")
         else:
+            role = "학생"
             uid = st.session_state.user.get("user_id") or str(uuid.uuid4())
-            st.session_state.user = {"user_id": uid, "user_name": user_name, "role": role}
+            age_val = int(age_str) if age_str.isdigit() else None
+            grade_val = None if grade == "선택안함" else grade
+            st.session_state.user = {"user_id": uid, "user_name": user_name, "role": role, "grade": grade_val, "age": age_val}
             # 사용자 기록 저장(중복 허용)
             users_df = pd.read_csv(USERS_CSV)
-            users_df.loc[len(users_df)] = [uid, user_name, role, _now_str()]
+            users_df.loc[len(users_df)] = [uid, user_name, role, grade_val, age_val, _now_str()]
             users_df.to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
-            st.success(f"환영합니다, {user_name} ({role})")
+            st.success(f"환영합니다, {user_name} (학생)")
 
 # =============== 상단 헤더 ===============
 st.title(APP_TITLE)
 user = st.session_state.user
 if user["user_name"]:
-    st.caption(f"접속: {user['user_name']} · 역할: {user['role']}")
+    extra = []
+    if user.get("grade"): extra.append(f"학년: {user['grade']}")
+    if user.get("age") is not None: extra.append(f"나이: {user['age']}")
+    extra_str = " · ".join(extra)
+    st.caption(f"접속: {user['user_name']} · 역할: 학생" + (f" · {extra_str}" if extra_str else ""))
 
 # =============== 탭 구성 ===============
 TABS = st.tabs(["퀴즈", "결과/보강", "재평가", "교사 대시보드", "문항 업로드"])
@@ -301,7 +309,20 @@ with TABS[0]:
                 quiz["current_idx"] += 1
                 st.rerun()
             else:
-                st.info("퀴즈 종료! 결과/보강 탭에서 리포트를 확인하세요.")
+                st.success("퀴즈 종료! 결과/보강 탭 또는 아래에서 전체 해설을 확인하세요.")
+                # 전체 해설 보기: 현재 세트의 모든 문항/정답/해설
+                with st.expander("📚 이번 세트 전체 해설 보기", expanded=True):
+                    # 해당 시도(attempt_id) 기준으로 학생의 정오 여부 매칭
+                    resp_list = st.session_state.get("responses", [])
+                    attempt_id = quiz["attempt_id"]
+                    resp_map = {r["item_id"]: r for r in resp_list if r.get("attempt_id") == attempt_id}
+                    for i, itm in enumerate(quiz["pool"], start=1):
+                        r = resp_map.get(itm["item_id"]) or {}
+                        is_c = r.get("is_correct") == 1
+                        icon = "✅" if is_c else "❌"
+                        st.markdown(f"**{i}. {itm['stem']}**  {icon}")
+                        st.write(f"정답: {itm['answer']}")
+                        st.info(itm.get("explanation", "(해설 준비중)"))
 
 # =============== 지표 계산 함수 ===============
 def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
