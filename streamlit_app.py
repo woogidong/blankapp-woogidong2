@@ -1,68 +1,47 @@
-# app.py
-# -------------------------------------------------------------
-# Streamlit Math Mastery App — Final MVP (with latest requests)
-# Author: ChatGPT
-# -------------------------------------------------------------
+# app.py — Math Concept Mastery (LaTeX + Robust CSV choices parsing)
+# ---------------------------------------------------------------
+# 변경점 요약
+# - choices가 비어 있거나 "None" 문자열이어도 주관식 입력창이 뜨도록 수정
+# - LaTeX 렌더링
+# - 퀴즈 종료 시 전체 해설
+# - 교사 대시보드 항상 열람 가능
+# - 업로드 CSV 스키마/파싱 안전화
 
 import os
 import json
 import time
 import uuid
-import random
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import Optional, List, Any
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import altair as alt
 import streamlit as st
-import re
 
-# =============== 기본 설정 ===============
-st.set_page_config(page_title="개념 마스터 (MVP)", layout="wide")
+# ================== App Config ==================
+st.set_page_config(page_title="개념 마스터 (LaTeX+CSV 안전파서)", layout="wide")
 
-# 버튼 시각적 개선: 모든 버튼을 눈에 띄게 스타일링
-st.markdown(
-    """
-    <style>
-    /* Streamlit 버튼 스타일 (전역) */
-    div.stButton > button {
-        background: linear-gradient(90deg,#1976D2,#0D47A1) !important;
-        color: white !important;
-        padding: 8px 14px !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        box-shadow: 0 4px 10px rgba(16,24,40,0.12) !important;
-        border: none !important;
-    }
-    div.stButton > button:active { transform: translateY(1px); }
-    /* 버튼 그룹을 조금 더 정돈된 느낌으로 */
-    .button-row { display:flex; gap:12px; align-items:center; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-APP_TITLE = "수학 개념 진단평가"
+APP_TITLE = "개념 마스터 (LaTeX+CSV 안전파서)"
 DATA_DIR = "data"
 RESPONSES_CSV = os.path.join(DATA_DIR, "responses.csv")
 USERS_CSV = os.path.join(DATA_DIR, "users.csv")
-ITEMS_CSV = os.path.join(DATA_DIR, "items.csv")  # 선택: 외부 아이템 업로드용
-
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# =============== 유틸 & 스키마 ===============
-def _now_str():
+# ================== Utils & Schema ==================
+def _now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-REQUIRED_USER_COLS = ["user_id","user_name","role","grade","age","created_at"]
+REQUIRED_USER_COLS = ["user_id", "user_name", "role", "grade", "age", "created_at"]
+REQUIRED_ITEM_COLS = {
+    "item_id","area","subtopic","level","time_hint",
+    "stem","choices","answer","explanation","error_tags"
+}
 
-@st.cache_data(show_spinner=False)
-def _empty_users_df():
+def _empty_users_df() -> pd.DataFrame:
     return pd.DataFrame(columns=REQUIRED_USER_COLS)
 
 def load_users_df() -> pd.DataFrame:
-    """Load users.csv and migrate columns if file exists with older schema."""
     if os.path.exists(USERS_CSV):
         try:
             df = pd.read_csv(USERS_CSV)
@@ -73,10 +52,9 @@ def load_users_df() -> pd.DataFrame:
     for c in REQUIRED_USER_COLS:
         if c not in df.columns:
             df[c] = np.nan
-    df = df[REQUIRED_USER_COLS]
-    return df
+    return df[REQUIRED_USER_COLS]
 
-# 최초 파일 생성
+# initialize data files
 if not os.path.exists(RESPONSES_CSV):
     pd.DataFrame(columns=[
         "ts","user_id","user_name","role","area","subtopic","item_id","is_correct",
@@ -86,98 +64,130 @@ if not os.path.exists(RESPONSES_CSV):
 if not os.path.exists(USERS_CSV):
     _empty_users_df().to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
 
-# =============== 세션 상태 ===============
+# ================== Session State ==================
 if "user" not in st.session_state:
     st.session_state.user = {"user_id": None, "user_name": None, "role": "학생", "grade": None, "age": None}
 if "quiz" not in st.session_state:
     st.session_state.quiz = {
         "pool": [], "current_idx": 0, "start_ts": None, "attempt_id": None,
-        "area": None, "subtopics": [], "levels": ["L1","L2","L3"], "size": 8
+        "area": None, "levels": ["L1","L2","L3"], "size": 8
     }
 if "responses" not in st.session_state:
     st.session_state.responses = []
 
-# =============== 시드 문항 ===============
-@st.cache_data(show_spinner=False)
+# ================== LaTeX Helper ==================
+def render_latex_or_text(s: Optional[str], *, label: Optional[str]=None) -> None:
+    if s is None:
+        return
+    s = str(s)
+    math_triggers = ["\\frac", "\\sqrt", "^", "_", "\\sum", "\\int", "\\lim", "\\rightarrow", "\\to", "\\pm", "\\ge", "\\le", "\\cdot", "\\times"]
+    if "$" in s or any(t in s for t in math_triggers):
+        try:
+            if label: st.markdown(f"**{label}**")
+            st.latex(s.strip("$"))
+            return
+        except Exception:
+            pass
+    if label: st.markdown(f"**{label}** {s}")
+    else: st.write(s)
+
+# ================== Robust JSON-ish parser ==================
+def parse_jsonish_list(x: Any):
+    """
+    choices / error_tags에 쓰는 안전 파서.
+    - 빈칸/NaN/"None"(대소문자 무관) → None (주관식으로 처리)
+    - JSON 배열 문자열 → list로 파싱 (스마트따옴표/홑따옴표 보정 재시도)
+    - 그 외 → 원문 유지
+    """
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return None
+    if isinstance(x, list):
+        return x
+    if not isinstance(x, str):
+        return x
+
+    s = x.strip()
+    if s == "" or s.lower() == "none":
+        return None
+
+    if s.startswith("["):
+        try:
+            return json.loads(s)
+        except Exception:
+            s2 = (s.replace("“","\"").replace("”","\"")
+                    .replace("’","'").replace("′","'")
+                    .replace("，",","))
+            # 홑따옴표만 있고 쌍따옴표가 없다면 교체
+            if ("\"" not in s2) and ("'" in s2):
+                s2 = s2.replace("'", "\"")
+            try:
+                return json.loads(s2)
+            except Exception:
+                # 파싱 실패 시 원문 문자열 유지 (디버깅 위해)
+                return s
+    return s
+
+# ================== Seed Items ==================
 def load_seed_items() -> pd.DataFrame:
     seed = [
-        # 대수
-    {"item_id":"ALG-001","area":"대수","subtopic":"다항식 전개","level":"L1","time_hint":30,
-     "stem":"$(x+2)(x-3)$를 전개하시오.","choices":None,"answer":"$x^2 - x - 6$",
-     "explanation":"분배법칙: $x*(x-3)+2*(x-3)=x^2-3x+2x-6= x^2 - x - 6$",
-     "error_tags":["절차오류","계산실수"]},
+        {"item_id":"ALG-001","area":"대수","subtopic":"다항식 전개","level":"L1","time_hint":30,
+         "stem":"(x+2)(x-3)를 전개하시오.","choices":None,"answer":"$x^2 - x - 6$",
+         "explanation":"$x(x-3)+2(x-3)=x^2-3x+2x-6=x^2-x-6$","error_tags":["절차오류","계산실수"]},
         {"item_id":"ALG-002","area":"대수","subtopic":"인수분해","level":"L1","time_hint":35,
-         "stem":"$x^2-5x+6$을 인수분해 하시오.","choices":None,"answer":"$(x-2)(x-3)$",
-         "explanation":"근의 합 5, 곱 6 → 2와 3","error_tags":["개념미이해"]},
-    {"item_id":"ALG-003","area":"대수","subtopic":"인수분해","level":"L2","time_hint":45,
-     "stem":"$x^2+7x+10$의 두 근을 구하시오.","choices":None,"answer":"$-5,\ -2$",
-     "explanation":"곱이 $10$, 합이 $7$ → $-5,\ -2$","error_tags":["개념미이해","계산실수"]},
-    {"item_id":"ALG-004","area":"대수","subtopic":"등식의 변형","level":"L2","time_hint":40,
-     "stem":"$2x+5=19$일 때 x를 구하시오.","choices":None,"answer":"$7$",
-     "explanation":"$2x=14$ → $x=7$","error_tags":["절차오류"]},
-    {"item_id":"ALG-005","area":"대수","subtopic":"연립방정식","level":"L2","time_hint":60,
-     "stem":"$x+y=7$, $x-y=1$을 풀어 $x,\ y$를 구하시오.","choices":None,"answer":"$(4,\ 3)$",
-     "explanation":"가감법으로 $x=4$, $y=3$","error_tags":["절차오류","계산실수"]},
-    {"item_id":"ALG-006","area":"대수","subtopic":"지수법칙","level":"L1","time_hint":40,
-     "stem":"$a^2\cdot a^3$ = ?","choices":None,"answer":"$a^5$",
-     "explanation":"지수 규칙: $a^{m}a^{n}=a^{m+n}$","error_tags":["개념미이해"]},
-        # 함수
-    {"item_id":"FUN-001","area":"함수","subtopic":"함수 개념","level":"L1","time_hint":40,
-     "stem":"$y=2x+1$에서 $x=3$일 때 $y$의 값은?","choices":None,"answer":"$7$",
-     "explanation":"대입 계산: $y=2\cdot3+1=7$","error_tags":["계산실수"]},
-    {"item_id":"FUN-002","area":"함수","subtopic":"일차함수 그래프","level":"L2","time_hint":60,
-     "stem":"$y=3x-2$의 그래프의 기울기는?","choices":["$-2$","$0$","$3$","$\\tfrac{2}{3}$"],"answer":"$3$",
-     "explanation":"$y=mx+b$에서 $m=3$","error_tags":["개념미이해"]},
-    {"item_id":"FUN-003","area":"함수","subtopic":"함수와 대응","level":"L2","time_hint":60,
-     "stem":"다음 중 함수가 아닌 것은?","choices":["$x\\mapsto x^2$","$x\\mapsto |x|$","원점대칭","$y=\\pm\\sqrt{r^2-x^2}$"],
-     "answer":"$y=\\pm\\sqrt{r^2-x^2}$",
-     "explanation":"하나의 $x$에 대해 $y$가 두 값일 수 있어 함수가 아니다(예: 원의 방정식)","error_tags":["개념미이해","문제해석"]},
-    {"item_id":"FUN-004","area":"함수","subtopic":"최대최소","level":"L3","time_hint":75,
-     "stem":"함수 $f(x)=x^2-4x+5$의 최솟값은?","choices":None,"answer":"$1$",
-     "explanation":"완전제곱식 $f(x)=(x-2)^2+1$ → 최솟값은 $1$","error_tags":["개념미이해"]},
-    {"item_id":"FUN-005","area":"함수","subtopic":"함수합성","level":"L3","time_hint":80,
-     "stem":"$f(x)=2x$, $g(x)=x+3$일 때 $(f\\circ g)(2)$의 값은?","choices":None,"answer":"$10$",
-     "explanation":"$g(2)=5$, $f(5)=10$","error_tags":["절차오류","계산실수"]},
-        # 기하
-    {"item_id":"GEO-001","area":"기하","subtopic":"삼각형 성질","level":"L1","time_hint":45,
-     "stem":"삼각형의 내각의 합은?","choices":["$90^\\circ$","$120^\\circ$","$180^\\circ$","$360^\\circ$"],"answer":"$180^\\circ$",
-     "explanation":"기본 성질","error_tags":["개념미이해"]},
-    {"item_id":"GEO-002","area":"기하","subtopic":"피타고라스","level":"L1","time_hint":45,
-     "stem":"직각삼각형에서 빗변이 $13$, 한 변이 $5$일 때 다른 변은?","choices":None,"answer":"$12$",
-     "explanation":"계산: $13^2-5^2=169-25=144$ → $\\sqrt{144}=12$","error_tags":["계산실수"]},
-    {"item_id":"GEO-003","area":"기하","subtopic":"닮음","level":"L2","time_hint":60,
-     "stem":"닮음비가 $2:3$인 두 도형의 넓이비는?","choices":None,"answer":"$4:9$",
-     "explanation":"넓이비 = $(\\text{선분비})^2 = (2/3)^2 = 4/9$","error_tags":["개념미이해"]},
-    {"item_id":"GEO-004","area":"기하","subtopic":"삼각비","level":"L2","time_hint":60,
-     "stem":"$\\sin 30^\\circ,\\ \\cos 60^\\circ,\\ \\tan 45^\\circ$를 각각 쓰시오.","choices":None,"answer":"$\\tfrac{1}{2},\\ \\tfrac{1}{2},\\ 1$",
-     "explanation":"표준 각의 삼각비: $\\sin30^\\circ=\\tfrac{1}{2}$ 등","error_tags":["개념미이해","계산실수"]},
-        # 확률과 통계
-    {"item_id":"STA-001","area":"확률과 통계","subtopic":"경우의 수","level":"L1","time_hint":45,
-     "stem":"동전을 두 번 던질 때 나올 수 있는 경우의 수는?","choices":None,"answer":"$4$",
-     "explanation":"HH, HT, TH, TT","error_tags":["개념미이해"]},
-    {"item_id":"STA-002","area":"확률과 통계","subtopic":"확률","level":"L1","time_hint":45,
-     "stem":"공정한 주사위 한 번의 6이 나올 확률은?","choices":None,"answer":"$\\tfrac{1}{6}$",
-     "explanation":"기본 확률","error_tags":["개념미이해"]},
-    {"item_id":"STA-003","area":"확률과 통계","subtopic":"평균","level":"L1","time_hint":45,
-     "stem":"데이터 $2,4,6,8$의 평균은?","choices":None,"answer":"$5$",
-     "explanation":"$\\dfrac{2+4+6+8}{4}=\\dfrac{20}{4}=5$","error_tags":["계산실수"]},
-    {"item_id":"STA-004","area":"확률과 통계","subtopic":"표준편차","level":"L2","time_hint":70,
-     "stem":"데이터 $1,3,5$의 표준편차(모표준편차 기준)를 구하시오.","choices":None,"answer":"$\\approx 1.632$",
-     "explanation":"평균 $3$, 분산 $\\dfrac{(1-3)^2+(3-3)^2+(5-3)^2}{3}=\\dfrac{8}{3}$ → 표준편차 $\\sqrt{\\tfrac{8}{3}}\\approx1.632$","error_tags":["계산실수"]},
+         "stem":"$x^2-5x+6$ 을 인수분해하시오.","choices":None,"answer":"$(x-2)(x-3)$",
+         "explanation":"곱 6, 합 5 → 2와 3","error_tags":["개념미이해"]},
+        {"item_id":"FUN-004","area":"함수","subtopic":"최대최소","level":"L3","time_hint":75,
+         "stem":"함수 $f(x)=x^2-4x+5$ 의 최솟값은?","choices":None,"answer":"$1$",
+         "explanation":"$(x-2)^2+1$ → 최솟값 1","error_tags":["개념미이해"]},
+        {"item_id":"GEO-002","area":"기하","subtopic":"피타고라스","level":"L1","time_hint":45,
+         "stem":"직각삼각형에서 빗변이 13, 한 변이 5일 때 다른 변은?","choices":None,"answer":"$12$",
+         "explanation":"$13^2-5^2=169-25=144 → 12$","error_tags":["계산실수"]},
+        {"item_id":"STA-004","area":"확률과 통계","subtopic":"표준편차","level":"L2","time_hint":70,
+         "stem":"데이터 $1,3,5$ 의 표준편차(모표준편차)를 구하시오.","choices":None,"answer":"$\\approx 1.632$",
+         "explanation":"평균 3, 분산 $8/3$ → $\\sigma=\\sqrt{8/3}\\approx1.632$","error_tags":["계산실수"]},
+        {"item_id":"FUN-002","area":"함수","subtopic":"일차함수","level":"L2","time_hint":60,
+         "stem":"$y=3x-2$ 의 기울기는?","choices":["$-2$","$0$","$3$","$\\tfrac{2}{3}$"],"answer":"$3$",
+         "explanation":"$y=mx+b$ 에서 $m=3$","error_tags":["개념미이해"]},
     ]
     return pd.DataFrame(seed)
 
-@st.cache_data(show_spinner=False)
-def load_items_from_csv(uploaded: pd.DataFrame | None) -> pd.DataFrame:
-    if uploaded is not None:
-        required = {"item_id","area","subtopic","level","time_hint","stem","answer"}
-        if not required.issubset(set(uploaded.columns)):
-            st.warning("CSV 컬럼이 부족합니다. 시드 문항을 사용합니다.")
-            return load_seed_items()
-        return uploaded
-    return load_seed_items()
+# ================== Items Load (Upload + Sanitize) ==================
+def sanitize_and_parse_items(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    # 누락 열 보강
+    missing = REQUIRED_ITEM_COLS - set(df.columns)
+    for c in missing:
+        df[c] = np.nan
+    # 컬럼 순서 표준화
+    df = df[[
+        "item_id","area","subtopic","level","time_hint",
+        "stem","choices","answer","explanation","error_tags"
+    ]]
+    # 이상 행 제거
+    df = df[
+        df["item_id"].astype(str).str.strip().ne("") &
+        df["area"].astype(str).str.strip().ne("") &
+        df["stem"].astype(str).str.strip().ne("")
+    ].reset_index(drop=True)
+    # 안전 파싱
+    for col in ["choices","error_tags"]:
+        df[col] = df[col].apply(parse_jsonish_list)
+    return df
 
-# =============== 상단/사이드바 ===============
+def load_items_from_upload(uploaded: Optional[pd.DataFrame]) -> pd.DataFrame:
+    base = load_seed_items()
+    if uploaded is None:
+        return sanitize_and_parse_items(base)
+    try:
+        parsed = sanitize_and_parse_items(uploaded)
+        # 비어 있으면 시드로 대체
+        if parsed.empty:
+            return sanitize_and_parse_items(base)
+        return parsed
+    except Exception:
+        return sanitize_and_parse_items(base)
+
+# ================== Sidebar Login ==================
 with st.sidebar:
     st.header("로그인")
     user_name = st.text_input("이름(혹은 별칭)")
@@ -194,33 +204,31 @@ with st.sidebar:
             st.session_state.user = {"user_id": uid, "user_name": user_name, "role": role, "grade": grade_val, "age": age_val}
             users_df = load_users_df()
             new_row = {
-                "user_id": uid,
-                "user_name": user_name,
-                "role": role,
-                "grade": grade_val,
-                "age": age_val,
-                "created_at": _now_str(),
+                "user_id": uid, "user_name": user_name, "role": role,
+                "grade": grade_val, "age": age_val, "created_at": _now_str(),
             }
             users_df = pd.concat([users_df, pd.DataFrame([new_row])], ignore_index=True)
             users_df.to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
             st.success(f"환영합니다, {user_name} (학생)")
 
+# ================== Header ==================
 st.title(APP_TITLE)
 user = st.session_state.user
 if user["user_name"]:
     extra = []
     if user.get("grade"): extra.append(f"학년: {user['grade']}")
     if user.get("age") is not None: extra.append(f"나이: {user['age']}")
-    extra_str = " · ".join(extra)
-    st.caption(f"접속: {user['user_name']} · 역할: 학생" + (f" · {extra_str}" if extra_str else ""))
+    st.caption(" · ".join(filter(None, [f"접속: {user['user_name']}", "역할: 학생"] + extra)))
 
-# =============== 탭 구성 ===============
-TABS = st.tabs(["퀴즈", "결과/보강", "재평가", "교사 대시보드", "문항 업로드"])
+# ================== Tabs ==================
+TABS = st.tabs(["퀴즈", "결과/보강", "교사 대시보드", "문항 업로드"])
 
-# =============== 문항 업로드 탭 ===============
-with TABS[4]:
-    st.subheader("문항 업로드 (선택)")
-    st.write("CSV 컬럼 예시: item_id, area, subtopic, level, time_hint, stem, choices(json옵션), answer, explanation, error_tags(json옵션)")
+# ================== Items Upload Tab ==================
+with TABS[3]:
+    st.subheader("문항 업로드 (CSV)")
+    st.write("필수 컬럼: item_id, area, subtopic, level, time_hint, stem, choices, answer, explanation, error_tags")
+    st.write("- **주관식**: choices를 공란/`None`(문자열) → 자동으로 입력창 표시")
+    st.write("- **객관식**: choices를 JSON 배열로 (예: `[\"$1$\",\"$2$\",\"$3$\",\"$4$\"]` )")
     uploaded_file = st.file_uploader("CSV 업로드", type=["csv"])
     uploaded_df = None
     if uploaded_file:
@@ -231,26 +239,22 @@ with TABS[4]:
         except Exception as e:
             st.error(f"업로드 실패: {e}")
 
-items_df = load_items_from_csv(uploaded_df)
-for col in ["choices","error_tags"]:
-    if col in items_df.columns:
-        items_df[col] = items_df[col].apply(lambda x: json.loads(x) if isinstance(x, str) and x.strip().startswith("[") else x)
+items_df = load_items_from_upload(uploaded_df)
 
-# =============== 유틸: 퀴즈 풀 생성 ===============
-def build_quiz_pool(df: pd.DataFrame, area: str, levels: List[str], size: int) -> List[Dict[str,Any]]:
+# ================== Quiz Utilities ==================
+def build_quiz_pool(df: pd.DataFrame, area: str, levels: List[str], size: int) -> List[dict]:
     subset = df[(df["area"]==area) & (df["level"].isin(levels))].copy()
     if subset.empty:
         return []
-    pool = subset.sample(n=min(size, len(subset)), replace=False, random_state=random.randint(0, 9999))
+    pool = subset.sample(n=min(size, len(subset)), replace=False, random_state=None)
     return pool.to_dict(orient="records")
 
-# =============== 탭1: 퀴즈 ===============
+# ================== Tab 1: Quiz ==================
 with TABS[0]:
     st.subheader("영역별 퀴즈")
-
     cols = st.columns([1,1,1,1,1])
     with cols[0]:
-        area = st.selectbox("영역", sorted(items_df["area"].unique().tolist()))
+        area = st.selectbox("영역", sorted(items_df["area"].dropna().unique().tolist()))
     with cols[1]:
         levels = st.multiselect("난이도", ["L1","L2","L3"], default=["L1","L2","L3"])
     with cols[2]:
@@ -267,7 +271,6 @@ with TABS[0]:
             "start_ts": time.time() if include_timer else None,
             "attempt_id": str(uuid.uuid4()),
             "area": area,
-            "subtopics": [],
             "levels": levels,
             "size": size,
         })
@@ -276,21 +279,26 @@ with TABS[0]:
     quiz = st.session_state.quiz
     if quiz["pool"]:
         q = quiz["pool"][quiz["current_idx"]]
-        st.markdown(f"#### Q{quiz['current_idx']+1}. {q['stem']}")
-        # 보기/입력
-        if q.get("choices"):
-            user_answer = st.radio("정답 선택", q["choices"], index=None, key=f"choice_{quiz['attempt_id']}_{quiz['current_idx']}")
+        st.markdown(f"#### Q{quiz['current_idx']+1}.")
+        render_latex_or_text(q.get("stem"), label="문제")
+
+        # -------- 핵심 수정: choices 처리 --------
+        choices = q.get("choices")
+        if isinstance(choices, list) and len(choices) > 0:
+            # 객관식
+            user_answer = st.radio("정답 선택", choices, index=None, key=f"choice_{quiz['attempt_id']}_{quiz['current_idx']}")
         else:
-            user_answer = st.text_input("답 입력 (수식/숫자/문자열)", key=f"text_{quiz['attempt_id']}_{quiz['current_idx']}")
+            # 주관식 (choices가 None, 빈칸, "None" 문자열이었던 경우 모두 여기로)
+            user_answer = st.text_input("답 입력 (LaTeX 가능)", key=f"input_{quiz['attempt_id']}_{quiz['current_idx']}")
 
         err_tag = st.selectbox("(선택) 내가 생각하는 오류 유형", ["선택안함","개념미이해","절차오류","계산실수","문제해석","시간관리"])
         submit = st.button("제출", type="primary")
 
         if submit:
-            ans = str(user_answer).strip()
+            ans_str = str(user_answer).strip()
             gold = str(q["answer"]).strip()
-            norm = lambda s: s.replace(" ", "").lower()
-            is_correct = norm(ans) == norm(gold)
+            norm = lambda s: s.replace(" ", "").lower().replace("\\,", "").strip("$")
+            is_correct = norm(ans_str) == norm(gold)
 
             resp_time = None
             if include_timer and quiz["start_ts"]:
@@ -309,7 +317,7 @@ with TABS[0]:
                 "subtopic": q["subtopic"],
                 "item_id": q["item_id"],
                 "is_correct": int(is_correct),
-                "response": ans,
+                "response": ans_str,
                 "response_time": resp_time,
                 "error_tag": None if err_tag=="선택안함" else err_tag,
                 "level": q["level"],
@@ -317,7 +325,6 @@ with TABS[0]:
             }
 
             st.session_state.responses.append(row)
-
             try:
                 old = pd.read_csv(RESPONSES_CSV)
                 old.loc[len(old)] = row
@@ -330,14 +337,14 @@ with TABS[0]:
             else:
                 st.error("오답입니다.")
                 with st.expander("해설 보기"):
-                    st.write(q.get("explanation","(해설 준비중)"))
+                    render_latex_or_text(q.get("explanation"))
 
+            # 다음 문항 or 종료
             if quiz["current_idx"] < len(quiz["pool"]) - 1:
                 quiz["current_idx"] += 1
                 st.rerun()
             else:
-                st.success("퀴즈 종료! 결과/보강 탭 또는 아래에서 전체 해설을 확인하세요.")
-                # 전체 해설: 이번 시도 전체 문항 요약
+                st.success("퀴즈 종료! 아래에서 전체 해설을 확인하세요.")
                 with st.expander("📚 이번 세트 전체 해설 보기", expanded=True):
                     resp_list = st.session_state.get("responses", [])
                     attempt_id = quiz["attempt_id"]
@@ -346,21 +353,20 @@ with TABS[0]:
                         r = resp_map.get(itm["item_id"]) or {}
                         is_c = r.get("is_correct") == 1
                         icon = "✅" if is_c else "❌"
-                        st.markdown(f"**{i}. {itm['stem']}**  {icon}")
-                        st.write(f"정답: {itm['answer']}")
-                        st.info(itm.get("explanation", "(해설 준비중)"))
+                        st.markdown(f"**{i}.** {icon}")
+                        render_latex_or_text(itm.get("stem"), label="문제")
+                        render_latex_or_text(itm.get("answer"), label="정답")
+                        render_latex_or_text(itm.get("explanation"), label="해설")
 
-# =============== 지표 함수 ===============
+# ================== Metrics Helpers ==================
 def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["subtopic","acc","speed_idx","recency","S_k","n"])
-
     grp = df.groupby("subtopic").agg(
         acc=("is_correct","mean"),
         n=("is_correct","count"),
         med_rt=("response_time","median")
     ).reset_index()
-
     med = grp["med_rt"].fillna(grp["med_rt"].median())
     if med.nunique() == 1:
         speed_idx = pd.Series([0.5]*len(grp), index=grp.index)
@@ -370,22 +376,20 @@ def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
 
     df["ts_dt"] = pd.to_datetime(df["ts"], errors="coerce")
     cutoff = pd.Timestamp.now() - pd.Timedelta(days=7)
-    recent_mask = df["ts_dt"] >= cutoff
-    rec = df[recent_mask].groupby("subtopic")["is_correct"].count()
+    rec = df[df["ts_dt"] >= cutoff].groupby("subtopic")["is_correct"].count()
     total = df.groupby("subtopic")["is_correct"].count()
     recency = (rec / total).reindex(grp["subtopic"]).fillna(0)
     grp["recency"] = recency.values
-
     grp["S_k"] = 0.7*grp["acc"] + 0.2*grp["speed_idx"] + 0.1*grp["recency"]
     return grp
 
-# =============== 탭2: 결과/보강 ===============
+# ================== Tab 2: Results / Remediation ==================
 with TABS[1]:
     st.subheader("결과 리포트 & 보강 제안")
     try:
         all_resp = pd.read_csv(RESPONSES_CSV)
     except Exception:
-        all_resp = pd.DataFrame(columns=["user_id","subtopic","is_correct","response_time","area","level","ts","error_tag"])    
+        all_resp = pd.DataFrame(columns=["user_id","subtopic","is_correct","response_time","area","level","ts","error_tag"])
 
     if user["user_name"]:
         mine = all_resp[all_resp["user_id"]==user["user_id"]].copy()
@@ -408,107 +412,16 @@ with TABS[1]:
             ).properties(height=300)
             st.altair_chart(bar, use_container_width=True)
         with col2:
-            st.markdown("**하위개념 × 정답률 히트맵**")
-            heat = alt.Chart(g).mark_rect().encode(
-                y=alt.Y('subtopic:N', sort='-x'),
-                x=alt.X('acc:Q', bin=alt.Bin(maxbins=10), title='정답률 구간'),
-                color=alt.Color('count():Q', title='빈도'),
-                tooltip=['subtopic','acc','n']
-            ).properties(height=300)
-            st.altair_chart(heat, use_container_width=True)
+            st.markdown("**오류 유형 요약**")
+            err = mine.dropna(subset=["error_tag"])
+            if err.empty:
+                st.caption("기록된 오류 유형이 없습니다. 다음 풀이에서 스스로 태깅해 보세요.")
+            else:
+                cnt = err.groupby("error_tag").size().reset_index(name="count").sort_values("count", ascending=False)
+                st.dataframe(cnt)
 
-        weak = g[g["S_k"] < 0.75].sort_values("S_k")
-        st.markdown("### 취약영역 제안")
-        if weak.empty:
-            st.success("모든 개념이 양호합니다. 🎉 재평가로 완전학습을 확인하세요!")
-        else:
-            for _, row in weak.iterrows():
-                sub = row['subtopic']
-                st.warning(f"**{sub}** · 숙달 {row['S_k']:.2f} — 보강 권장")
-                sample = items_df[items_df["subtopic"]==sub].head(2)
-                for __, it in sample.iterrows():
-                    with st.expander(f"보강 카드: {it['item_id']} — {it['stem'][:50]}..."):
-                        st.write("**핵심 개념 요약**")
-                        st.info(it.get("explanation","(해설 준비중)"))
-                        st.write("**연습 문항 제안**: 동일/유사 유형 2~3개를 추가하세요.")
-
-        st.markdown("### 오류 유형 요약")
-        err = mine.dropna(subset=["error_tag"])  
-        if err.empty:
-            st.caption("기록된 오류 유형이 없습니다. 다음 풀이에서 스스로 태깅해 보세요.")
-        else:
-            cnt = err.groupby("error_tag").size().reset_index(name="count").sort_values("count", ascending=False)
-            st.dataframe(cnt)
-
-# =============== 탭3: 재평가 ===============
+# ================== Tab 3: Teacher Dashboard (Always visible) ==================
 with TABS[2]:
-    st.subheader("재평가 (취약영역만)")
-    if user["user_name"]:
-        try:
-            all_resp = pd.read_csv(RESPONSES_CSV)
-        except Exception:
-            all_resp = pd.DataFrame()
-        mine = all_resp[all_resp["user_id"]==user["user_id"]].copy()
-        g = mastery_scores(mine)
-        weak_list = g[g["S_k"] < 0.75]["subtopic"].tolist()
-        if not weak_list:
-            st.success("취약영역이 없습니다. 최근 기록 기준으로 통과입니다!")
-        else:
-            sub_sel = st.multiselect("재평가할 하위개념 선택", weak_list, default=weak_list[:1])
-            n_items = st.number_input("문항 수", 3, 12, value=6)
-            start = st.button("재평가 시작")
-            if start and sub_sel:
-                subset = items_df[items_df["subtopic"].isin(sub_sel)]
-                pool = subset.sample(min(n_items, len(subset))) if not subset.empty else pd.DataFrame()
-                if pool.empty:
-                    st.error("해당 개념 문항이 부족합니다. 관리자에게 문의하세요.")
-                else:
-                    st.info("문항을 순서대로 풉니다. 제출 시 즉시 판정합니다.")
-                    attempt_id = str(uuid.uuid4())
-                    for i, (_, it) in enumerate(pool.iterrows(), start=1):
-                        st.markdown(f"#### R{i}. {it['stem']}")
-                        if isinstance(it.get("choices"), list) and it["choices"]:
-                            a = st.radio("정답 선택", it["choices"], index=None, key=f"re_choice_{attempt_id}_{i}")
-                        else:
-                            a = st.text_input("답 입력", key=f"re_text_{attempt_id}_{i}")
-                        btn = st.button("제출", key=f"re_submit_{attempt_id}_{i}")
-                        if btn:
-                            ans = str(a).strip()
-                            gold = str(it["answer"]).strip()
-                            is_correct = ans.replace(" ", "").lower() == gold.replace(" ", "").lower()
-                            row = {
-                                "ts": _now_str(),
-                                "user_id": user["user_id"],
-                                "user_name": user["user_name"],
-                                "role": user["role"],
-                                "area": it["area"],
-                                "subtopic": it["subtopic"],
-                                "item_id": it["item_id"],
-                                "is_correct": int(is_correct),
-                                "response": ans,
-                                "response_time": None,
-                                "error_tag": None,
-                                "level": it["level"],
-                                "attempt_id": attempt_id,
-                            }
-                            try:
-                                old = pd.read_csv(RESPONSES_CSV)
-                                old.loc[len(old)] = row
-                                old.to_csv(RESPONSES_CSV, index=False, encoding="utf-8-sig")
-                            except Exception as e:
-                                st.warning(f"저장 오류: {e}")
-
-                            if is_correct:
-                                st.success("정답! 👍")
-                            else:
-                                st.error("오답")
-                                with st.expander("해설"):
-                                    st.write(it.get("explanation","(해설 준비중)"))
-    else:
-        st.info("좌측에서 이름/학년을 입력하세요.")
-
-# =============== 탭4: 교사 대시보드(항상 접근가능) ===============
-with TABS[3]:
     st.subheader("교사 대시보드")
     try:
         df = pd.read_csv(RESPONSES_CSV)
@@ -550,83 +463,3 @@ with TABS[3]:
             tooltip=['user_name','subtopic',alt.Tooltip('acc:Q', format='.2f')]
         ).properties(height=300)
         st.altair_chart(heat, use_container_width=True)
-
-        st.download_button(
-            "응답 원시데이터 CSV 다운로드",
-            data=df.to_csv(index=False, encoding='utf-8-sig'),
-            file_name=f"responses_export_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime='text/csv'
-        )
-
-# =============== 푸터 ===============
-st.divider()
-st.caption("ⓒ AI융합교육전공 이동욱 — Streamlit 샘플. 실제 운영 시 계정/권한, 보안, 난이도 보정, 대규모 문항은행 등을 확장하세요.")
-import json, pandas as pd, numpy as np, streamlit as st
-
-def parse_jsonish_list(x):
-    """choices / error_tags 안전 파서: [], JSON 문자열, 'None', 빈칸 모두 허용"""
-    if x is None or (isinstance(x, float) and pd.isna(x)):
-        return None
-    if isinstance(x, list):
-        return x
-    if not isinstance(x, str):
-        return x
-
-    s = x.strip()
-    if s == "" or s.lower() == "none":
-        return None
-
-    if s.startswith("["):
-        try:
-            return json.loads(s)
-        except Exception:
-            # 스마트따옴표/홑따옴표 보정 후 재시도
-            s2 = (s.replace("“","\"").replace("”","\"")
-                    .replace("’","'").replace("′","'")
-                    .replace("，",","))
-            if ("\"" not in s2) and ("'" in s2):
-                s2 = s2.replace("'", "\"")
-            try:
-                return json.loads(s2)
-            except Exception:
-                st.warning(f"목록(JSON) 파싱 실패: {s[:60]}... 원문 유지")
-                return s
-    return s
-
-    REQUIRED_ITEM_COLS = {
-    "item_id","area","subtopic","level","time_hint",
-    "stem","choices","answer","explanation","error_tags"
-}
-
-# items_df = pd.read_csv(uploaded_file)  # 예시
-items_df = items_df.copy()
-
-# 누락 컬럼 보강 + 컬럼 순서 표준화
-missing = REQUIRED_ITEM_COLS - set(items_df.columns)
-for c in missing:
-    items_df[c] = np.nan
-items_df = items_df[[
-    "item_id","area","subtopic","level","time_hint",
-    "stem","choices","answer","explanation","error_tags"
-]]
-
-# 문항 아닌 이상 행 제거
-items_df = items_df[
-    items_df["item_id"].astype(str).str.strip().ne("") &
-    items_df["area"].astype(str).str.strip().ne("") &
-    items_df["stem"].astype(str).str.strip().ne("")
-].reset_index(drop=True)
-
-# choices / error_tags 안전 파싱
-for col in ["choices", "error_tags"]:
-    items_df[col] = items_df[col].apply(parse_jsonish_list)
-
-q = current_item
-choices = q.get("choices")
-
-if isinstance(choices, list) and len(choices) > 0:
-    # 객관식
-    user_answer = st.radio("정답 선택", choices, index=None, key=f"choice_{qid}")
-else:
-    # 주관식 → 텍스트 입력
-    user_answer = st.text_input("답 입력 (LaTeX 가능)", key=f"input_{qid}")
