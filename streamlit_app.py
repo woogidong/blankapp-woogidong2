@@ -22,6 +22,34 @@ import streamlit as st
 # ================== App Config ==================
 st.set_page_config(page_title="개념 마스터 (LaTeX+CSV 안전파서)", layout="wide")
 
+# ====== Custom button / UI styling ======
+st.markdown(
+    """
+    <style>
+    /* Primary-looking buttons */
+    .stButton>button {
+        background: linear-gradient(90deg,#4f9eed,#2b7bd3);
+        color: white;
+        border: none;
+        padding: 8px 14px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(43,123,211,0.25);
+    }
+    .stButton>button:focus { outline: none; }
+    .stButton>button:hover { transform: translateY(-1px); }
+
+    /* Secondary smaller controls (toggles/selects) spacing */
+    .stSelectbox, .stNumberInput, .stMultiSelect { margin-bottom: 8px; }
+
+    /* Emphasize submit button */
+    button[kind="primary"] {
+        background: linear-gradient(90deg,#f59e0b,#f97316) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 APP_TITLE = "개념 마스터 (LaTeX+CSV 안전파서)"
 DATA_DIR = "data"
 RESPONSES_CSV = os.path.join(DATA_DIR, "responses.csv")
@@ -307,6 +335,7 @@ with TABS[0]:
 
         # -------- choices 처리: LaTeX 보기를 보여주고 라디오로 선택하도록 --------
         choices = q.get("choices")
+        sel_label = None
         if isinstance(choices, list) and len(choices) > 0:
             # 객관식: 위에는 LaTeX 렌더된 보기, 아래에는 A/B/C 라디오로 선택
             letters = [chr(ord('A') + i) for i in range(len(choices))]
@@ -314,16 +343,27 @@ with TABS[0]:
                 # 각 선택지를 LaTeX/텍스트 혼합으로 렌더
                 render_latex_or_text(f"{letters[i]}. {str(ch)}")
             sel_label = st.radio("정답 선택 (위의 선택지를 확인하세요)", letters, index=None, key=f"choiceidx_{quiz['attempt_id']}_{quiz['current_idx']}")
-            # 선택한 레이블을 실제 문자열로 매핑
-            user_answer = choices[letters.index(sel_label)]
+            # 선택한 레이블을 실제 문자열로 매핑 (선택이 없으면 None)
+            if sel_label in letters:
+                user_answer = choices[letters.index(sel_label)]
+            else:
+                user_answer = ""
         else:
             # 주관식 (choices가 None, 빈칸, "None" 문자열이었던 경우 모두 여기로)
             user_answer = st.text_input("답 입력 (LaTeX 가능)", key=f"input_{quiz['attempt_id']}_{quiz['current_idx']}")
 
-        err_tag = st.selectbox("(선택) 내가 생각하는 오류 유형", ["선택안함","개념미이해","절차오류","계산실수","문제해석","시간관리"])
-        submit = st.button("제출", type="primary")
+        # 버튼/입력 배치: 오류 태그는 왼쪽, 제출 버튼은 오른쪽(눈에 띄게)
+        c_left, c_right = st.columns([3,1])
+        with c_left:
+            err_tag = st.selectbox("(선택) 내가 생각하는 오류 유형", ["선택안함","개념미이해","절차오류","계산실수","문제해석","시간관리"])
+        with c_right:
+            submit = st.button("제출", type="primary", use_container_width=True)
 
+        # 제출 전 검증: 객관식 문항인 경우 반드시 선택을 해야 함
         if submit:
+            if isinstance(choices, list) and len(choices) > 0 and not sel_label:
+                st.warning("객관식 문항입니다. 답을 선택한 후 제출하세요.")
+                st.stop()
             ans_str = str(user_answer).strip()
             gold = str(q["answer"]).strip()
             norm = lambda s: s.replace(" ", "").lower().replace("\\,", "").strip("$")
@@ -374,6 +414,12 @@ with TABS[0]:
                 st.rerun()
             else:
                 st.success("퀴즈 종료! 아래에서 전체 해설을 확인하세요.")
+                # 축하 효과: 풍선
+                try:
+                    st.balloons()
+                except Exception:
+                    # st.balloons()가 실패해도 진행
+                    pass
                 with st.expander("📚 이번 세트 전체 해설 보기", expanded=True):
                     resp_list = st.session_state.get("responses", [])
                     attempt_id = quiz["attempt_id"]
