@@ -98,8 +98,7 @@ if "user" not in st.session_state:
 if "quiz" not in st.session_state:
     st.session_state.quiz = {
         "pool": [], "current_idx": 0, "start_ts": None, "attempt_id": None,
-        "area": None, "levels": ["L1","L2","L3"], "size": 8,
-        "show_results": False
+        "area": None, "levels": ["L1","L2","L3"], "size": 8
     }
 if "responses" not in st.session_state:
     st.session_state.responses = []
@@ -325,7 +324,6 @@ with TABS[0]:
             "area": area,
             "levels": levels,
             "size": size,
-            "show_results": False,
         })
         st.success(f"퀴즈 생성: {len(st.session_state.quiz['pool'])}문항")
 
@@ -411,67 +409,25 @@ with TABS[0]:
                 quiz["current_idx"] += 1
                 st.rerun()
             else:
-                # 퀴즈 종료: 전체 세트 결과를 session_state에 보관하고 문제 영역을 비웁니다.
-                resp_list = st.session_state.get("responses", [])
-                attempt_id = quiz["attempt_id"]
-                resp_map = {r["item_id"]: r for r in resp_list if r.get("attempt_id") == attempt_id}
-
-                # 요약 통계
-                total = len(quiz["pool"])
-                correct = sum(1 for itm in quiz["pool"] if resp_map.get(itm["item_id"], {}).get("is_correct") == 1)
-                acc = (correct / total) if total > 0 else 0.0
-                times = [r.get("response_time") for r in resp_list if r.get("attempt_id") == attempt_id and r.get("response_time") is not None]
-                avg_time = round(float(np.mean(times)) ,2) if times else None
-
-                last_report = {
-                    "attempt_id": attempt_id,
-                    "total": total,
-                    "correct": correct,
-                    "accuracy": acc,
-                    "avg_time": avg_time,
-                    "pool": quiz["pool"],
-                    "resp_map": resp_map,
-                }
-
-                # 세트 결과를 세션에 저장하고 문제 풀 영역을 비움
-                st.session_state.quiz["last_report"] = last_report
-                st.session_state.quiz["pool"] = []
-                st.session_state.quiz["current_idx"] = 0
-                st.session_state.quiz["show_results"] = True
-
-                # 축하 효과
+                st.success("퀴즈 종료! 아래에서 전체 해설을 확인하세요.")
+                # 축하 효과: 풍선
                 try:
                     st.balloons()
                 except Exception:
+                    # st.balloons()가 실패해도 진행
                     pass
-
-                # 강제 리렌더로 깨끗한 화면에서 결과를 표시하도록 함
-                st.experimental_rerun()
-    # 퀴즈 풀이 영역이 비어있고 이전 세트 결과가 있거나 show_results가 켜져 있으면 결과 리포트 표시
-    elif (not quiz.get("pool") and quiz.get("last_report")) or quiz.get("show_results"):
-        rpt = quiz["last_report"]
-        st.subheader("이번 세트 결과")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("문항 수", rpt["total"]) 
-        c2.metric("정답 수", rpt["correct"]) 
-        c3.metric("정답률", f"{rpt['accuracy']*100:.1f}%")
-        if rpt.get("avg_time") is not None:
-            st.caption(f"평균 응답 시간: {rpt['avg_time']}초")
-
-        with st.expander("📚 이번 세트 전체 해설 보기", expanded=True):
-            resp_map = rpt["resp_map"]
-            for i, itm in enumerate(rpt["pool"], start=1):
-                r = resp_map.get(itm["item_id"], {})
-                is_c = r.get("is_correct") == 1
-                icon = "✅" if is_c else "❌"
-                st.markdown(f"**{i}.** {icon}")
-                render_latex_or_text(itm.get("stem"), label="문제")
-                render_latex_or_text(itm.get("answer"), label="정답")
-                render_latex_or_text(itm.get("explanation"), label="해설")
-        # 결과를 본 후 필요하면 세션의 last_report를 지워 다음 세트 준비
-        if st.button("결과 닫기 및 다음 세트 준비", use_container_width=True):
-            st.session_state.quiz.pop("last_report", None)
-            st.experimental_rerun()
+                with st.expander("📚 이번 세트 전체 해설 보기", expanded=True):
+                    resp_list = st.session_state.get("responses", [])
+                    attempt_id = quiz["attempt_id"]
+                    resp_map = {r["item_id"]: r for r in resp_list if r.get("attempt_id") == attempt_id}
+                    for i, itm in enumerate(quiz["pool"], start=1):
+                        r = resp_map.get(itm["item_id"]) or {}
+                        is_c = r.get("is_correct") == 1
+                        icon = "✅" if is_c else "❌"
+                        st.markdown(f"**{i}.** {icon}")
+                        render_latex_or_text(itm.get("stem"), label="문제")
+                        render_latex_or_text(itm.get("answer"), label="정답")
+                        render_latex_or_text(itm.get("explanation"), label="해설")
 
 # ================== Metrics Helpers ==================
 def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
