@@ -139,9 +139,9 @@ def load_seed_items() -> pd.DataFrame:
      "stem":"$f(x)=2x$, $g(x)=x+3$일 때 $(f\\circ g)(2)$의 값은?","choices":None,"answer":"$10$",
      "explanation":"$g(2)=5$, $f(5)=10$","error_tags":["절차오류","계산실수"]},
         # 기하
-        {"item_id":"GEO-001","area":"기하","subtopic":"삼각형 성질","level":"L1","time_hint":45,
-         "stem":"삼각형의 내각의 합은?","choices":["90°","120°","180°","360°"],"answer":"180°",
-         "explanation":"기본 성질","error_tags":["개념미이해"]},
+    {"item_id":"GEO-001","area":"기하","subtopic":"삼각형 성질","level":"L1","time_hint":45,
+     "stem":"삼각형의 내각의 합은?","choices":["$90^\\circ$","$120^\\circ$","$180^\\circ$","$360^\\circ$"],"answer":"$180^\\circ$",
+     "explanation":"기본 성질","error_tags":["개념미이해"]},
     {"item_id":"GEO-002","area":"기하","subtopic":"피타고라스","level":"L1","time_hint":45,
      "stem":"직각삼각형에서 빗변이 $13$, 한 변이 $5$일 때 다른 변은?","choices":None,"answer":"$12$",
      "explanation":"계산: $13^2-5^2=169-25=144$ → $\\sqrt{144}=12$","error_tags":["계산실수"]},
@@ -152,12 +152,12 @@ def load_seed_items() -> pd.DataFrame:
      "stem":"$\\sin 30^\\circ,\\ \\cos 60^\\circ,\\ \\tan 45^\\circ$를 각각 쓰시오.","choices":None,"answer":"$\\tfrac{1}{2},\\ \\tfrac{1}{2},\\ 1$",
      "explanation":"표준 각의 삼각비: $\\sin30^\\circ=\\tfrac{1}{2}$ 등","error_tags":["개념미이해","계산실수"]},
         # 확률과 통계
-        {"item_id":"STA-001","area":"확률과 통계","subtopic":"경우의 수","level":"L1","time_hint":45,
-         "stem":"동전을 두 번 던질 때 나올 수 있는 경우의 수는?","choices":None,"answer":"4",
-         "explanation":"HH, HT, TH, TT","error_tags":["개념미이해"]},
-        {"item_id":"STA-002","area":"확률과 통계","subtopic":"확률","level":"L1","time_hint":45,
-         "stem":"공정한 주사위 한 번의 6이 나올 확률은?","choices":None,"answer":"1/6",
-         "explanation":"기본 확률","error_tags":["개념미이해"]},
+    {"item_id":"STA-001","area":"확률과 통계","subtopic":"경우의 수","level":"L1","time_hint":45,
+     "stem":"동전을 두 번 던질 때 나올 수 있는 경우의 수는?","choices":None,"answer":"$4$",
+     "explanation":"HH, HT, TH, TT","error_tags":["개념미이해"]},
+    {"item_id":"STA-002","area":"확률과 통계","subtopic":"확률","level":"L1","time_hint":45,
+     "stem":"공정한 주사위 한 번의 6이 나올 확률은?","choices":None,"answer":"$\\tfrac{1}{6}$",
+     "explanation":"기본 확률","error_tags":["개념미이해"]},
     {"item_id":"STA-003","area":"확률과 통계","subtopic":"평균","level":"L1","time_hint":45,
      "stem":"데이터 $2,4,6,8$의 평균은?","choices":None,"answer":"$5$",
      "explanation":"$\\dfrac{2+4+6+8}{4}=\\dfrac{20}{4}=5$","error_tags":["계산실수"]},
@@ -561,3 +561,72 @@ with TABS[3]:
 # =============== 푸터 ===============
 st.divider()
 st.caption("ⓒ AI융합교육전공 이동욱 — Streamlit 샘플. 실제 운영 시 계정/권한, 보안, 난이도 보정, 대규모 문항은행 등을 확장하세요.")
+import json, pandas as pd, numpy as np, streamlit as st
+
+def parse_jsonish_list(x):
+    """choices / error_tags 안전 파서: [], JSON 문자열, 'None', 빈칸 모두 허용"""
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return None
+    if isinstance(x, list):
+        return x
+    if not isinstance(x, str):
+        return x
+
+    s = x.strip()
+    if s == "" or s.lower() == "none":
+        return None
+
+    if s.startswith("["):
+        try:
+            return json.loads(s)
+        except Exception:
+            # 스마트따옴표/홑따옴표 보정 후 재시도
+            s2 = (s.replace("“","\"").replace("”","\"")
+                    .replace("’","'").replace("′","'")
+                    .replace("，",","))
+            if ("\"" not in s2) and ("'" in s2):
+                s2 = s2.replace("'", "\"")
+            try:
+                return json.loads(s2)
+            except Exception:
+                st.warning(f"목록(JSON) 파싱 실패: {s[:60]}... 원문 유지")
+                return s
+    return s
+
+    REQUIRED_ITEM_COLS = {
+    "item_id","area","subtopic","level","time_hint",
+    "stem","choices","answer","explanation","error_tags"
+}
+
+# items_df = pd.read_csv(uploaded_file)  # 예시
+items_df = items_df.copy()
+
+# 누락 컬럼 보강 + 컬럼 순서 표준화
+missing = REQUIRED_ITEM_COLS - set(items_df.columns)
+for c in missing:
+    items_df[c] = np.nan
+items_df = items_df[[
+    "item_id","area","subtopic","level","time_hint",
+    "stem","choices","answer","explanation","error_tags"
+]]
+
+# 문항 아닌 이상 행 제거
+items_df = items_df[
+    items_df["item_id"].astype(str).str.strip().ne("") &
+    items_df["area"].astype(str).str.strip().ne("") &
+    items_df["stem"].astype(str).str.strip().ne("")
+].reset_index(drop=True)
+
+# choices / error_tags 안전 파싱
+for col in ["choices", "error_tags"]:
+    items_df[col] = items_df[col].apply(parse_jsonish_list)
+
+q = current_item
+choices = q.get("choices")
+
+if isinstance(choices, list) and len(choices) > 0:
+    # 객관식
+    user_answer = st.radio("정답 선택", choices, index=None, key=f"choice_{qid}")
+else:
+    # 주관식 → 텍스트 입력
+    user_answer = st.text_input("답 입력 (LaTeX 가능)", key=f"input_{qid}")
