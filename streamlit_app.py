@@ -433,11 +433,11 @@ with TABS[0]:
                     "resp_map": resp_map,
                 }
 
-                    # 세트 결과를 세션에 저장하고 문제 풀 영역을 비움
-                    st.session_state.quiz["last_report"] = last_report
-                    st.session_state.quiz["pool"] = []
-                    st.session_state.quiz["current_idx"] = 0
-                    st.session_state.quiz["show_results"] = True
+                # 세트 결과를 세션에 저장하고 문제 풀 영역을 비움
+                st.session_state.quiz["last_report"] = last_report
+                st.session_state.quiz["pool"] = []
+                st.session_state.quiz["current_idx"] = 0
+                st.session_state.quiz["show_results"] = True
 
                 # 축하 효과
                 try:
