@@ -55,6 +55,18 @@ DATA_DIR = "data"
 RESPONSES_CSV = os.path.join(DATA_DIR, "responses.csv")
 USERS_CSV = os.path.join(DATA_DIR, "users.csv")
 os.makedirs(DATA_DIR, exist_ok=True)
+TERMS_JSON = os.path.join(DATA_DIR, "math_terms.json")
+
+
+def load_terms() -> dict:
+    try:
+        with open(TERMS_JSON, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {
+            "함수": "함수는 각 입력값에 대해 정확히 하나의 출력값이 대응하는 규칙 또는 관계입니다.",
+            "미분": "미분은 함수의 순간 변화율을 구하는 연산입니다. 도함수 f'(x)는 x에서의 기울기를 나타냅니다.",
+        }
 
 # ================== Utils & Schema ==================
 def _now_str() -> str:
@@ -261,6 +273,10 @@ with st.sidebar:
             users_df = pd.concat([users_df, pd.DataFrame([new_row])], ignore_index=True)
             users_df.to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
             st.success(f"환영합니다, {user_name} (학생)")
+    # 학생 정보 초기화 버튼
+    if st.button("학생 정보 초기화", key="reset_user"):
+        st.session_state.user = {"user_id": None, "user_name": None, "role": "학생", "grade": None, "age": None}
+        st.success("학생 정보가 초기화되었습니다.")
 
 # ================== Header ==================
 st.title(APP_TITLE)
@@ -272,7 +288,7 @@ if user["user_name"]:
     st.caption(" · ".join(filter(None, [f"접속: {user['user_name']}", "역할: 학생"] + extra)))
 
 # ================== Tabs ==================
-TABS = st.tabs(["퀴즈", "결과/보강", "교사 대시보드", "문항 업로드"])
+TABS = st.tabs(["퀴즈", "결과/보강", "교사 대시보드", "문항 업로드", "용어사전"])
 
 # ================== Items Upload Tab ==================
 with TABS[3]:
@@ -511,6 +527,39 @@ with TABS[1]:
             display_cols = [c for c in ["ts", "item_id", "area", "subtopic", "response", "error_tag"] if c in wrong.columns]
             st.dataframe(wrong[display_cols].head(20).reset_index(drop=True))
 
+        # 하위개념 기반 보충학습 추천
+        st.markdown("**추천 보충학습(하위개념 기반)**")
+        wrong_by_sub = wrong.groupby("subtopic").size().reset_index(name="cnt").sort_values("cnt", ascending=False)
+        if wrong_by_sub.empty:
+            st.caption("추천할 보충학습 항목이 없습니다.")
+        else:
+            # 상위 3개 추천
+            topn = wrong_by_sub.head(3)
+            for _, row in topn.iterrows():
+                sub = row["subtopic"] or "-"
+                cnt = int(row["cnt"])
+                st.markdown(f"- **{sub}** — 오답 {cnt}회")
+                # 보충학습 시작 버튼
+                if st.button(f"{sub} 보충학습 시작", key=f"remed_{sub}"):
+                    # 해당 subtopic에서 문제를 샘플링하여 퀴즈로 연결
+                    subset = items_df[items_df["subtopic"] == sub]
+                    if subset.empty:
+                        st.warning("해당 하위개념의 문항이 없습니다.")
+                    else:
+                        pool = subset.sample(n=min(5, len(subset)), replace=False).to_dict(orient="records")
+                        st.session_state.quiz.update({
+                            "pool": pool,
+                            "current_idx": 0,
+                            "start_ts": time.time() if include_timer else None,
+                            "attempt_id": str(uuid.uuid4()),
+                            "area": None,
+                            "levels": levels,
+                            "size": len(pool),
+                            "show_results": False,
+                        })
+                        st.success(f"보충학습 {sub} 세트를 시작합니다 ({len(pool)}문항)")
+                        st.experimental_rerun()
+
 # ================== Tab 3: Teacher Dashboard (Always visible) ==================
 with TABS[2]:
     st.subheader("교사 대시보드")
@@ -554,3 +603,22 @@ with TABS[2]:
             tooltip=['user_name','subtopic',alt.Tooltip('acc:Q', format='.2f')]
         ).properties(height=300)
         st.altair_chart(heat, use_container_width=True)
+
+# ================== Tab 4: Math Terms Dictionary ==================
+with TABS[4]:
+    st.subheader("수학 용어사전")
+    terms = load_terms()
+    query = st.text_input("찾을 용어를 입력하세요 (부분검색 가능)")
+    if query:
+        matches = {k: v for k, v in terms.items() if query in k or query in v}
+    else:
+        matches = {}
+
+    if not matches and query:
+        st.info("검색어와 일치하는 용어가 없습니다.")
+    elif not query:
+        st.markdown("사전에서 용어를 검색해 보세요. (예: 함수, 미분, 적분)")
+    else:
+        for term, defi in matches.items():
+            st.markdown(f"### {term}")
+            st.write(defi)
