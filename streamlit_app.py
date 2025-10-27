@@ -1,5 +1,4 @@
 import streamlit as st
-
 # app.py
 # -------------------------------------------------------------
 # Streamlit Math Mastery App — Minimal Viable Product (MVP)
@@ -37,6 +36,30 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # =============== 유틸 ===============
 def _now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# --- Schema helpers (backward compatibility) ---
+REQUIRED_USER_COLS = ["user_id","user_name","role","grade","age","created_at"]
+
+@st.cache_data(show_spinner=False)
+def _empty_users_df():
+    return pd.DataFrame(columns=REQUIRED_USER_COLS)
+
+def load_users_df() -> pd.DataFrame:
+    """Load users.csv and migrate columns if the file was created with an older schema."""
+    if os.path.exists(USERS_CSV):
+        try:
+            df = pd.read_csv(USERS_CSV)
+        except Exception:
+            df = _empty_users_df()
+    else:
+        df = _empty_users_df()
+    # add missing cols and reorder
+    for c in REQUIRED_USER_COLS:
+        if c not in df.columns:
+            df[c] = np.nan
+    df = df[REQUIRED_USER_COLS]
+    return df
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 @st.cache_data(show_spinner=False)
@@ -133,7 +156,7 @@ if not os.path.exists(RESPONSES_CSV):
     ]).to_csv(RESPONSES_CSV, index=False, encoding="utf-8-sig")
 
 if not os.path.exists(USERS_CSV):
-    pd.DataFrame(columns=["user_id","user_name","role","grade","age","created_at"]).to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
+    _empty_users_df().to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
 
 # =============== 세션 상태 ===============
 if "user" not in st.session_state:
@@ -160,8 +183,16 @@ with st.sidebar:
             grade_val = None if grade == "선택안함" else grade
             st.session_state.user = {"user_id": uid, "user_name": user_name, "role": role, "grade": grade_val, "age": age_val}
             # 사용자 기록 저장(중복 허용)
-            users_df = pd.read_csv(USERS_CSV)
-            users_df.loc[len(users_df)] = [uid, user_name, role, grade_val, age_val, _now_str()]
+            users_df = load_users_df()
+            new_row = {
+                "user_id": uid,
+                "user_name": user_name,
+                "role": role,
+                "grade": grade_val,
+                "age": age_val,
+                "created_at": _now_str(),
+            }
+            users_df = pd.concat([users_df, pd.DataFrame([new_row])], ignore_index=True)
             users_df.to_csv(USERS_CSV, index=False, encoding="utf-8-sig")
             st.success(f"환영합니다, {user_name} (학생)")
 
