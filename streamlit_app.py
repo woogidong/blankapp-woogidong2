@@ -16,9 +16,32 @@ import pandas as pd
 import numpy as np
 import altair as alt
 import streamlit as st
+import re
 
 # =============== 기본 설정 ===============
 st.set_page_config(page_title="개념 마스터 (MVP)", layout="wide")
+
+# 버튼 시각적 개선: 모든 버튼을 눈에 띄게 스타일링
+st.markdown(
+    """
+    <style>
+    /* Streamlit 버튼 스타일 (전역) */
+    div.stButton > button {
+        background: linear-gradient(90deg,#1976D2,#0D47A1) !important;
+        color: white !important;
+        padding: 8px 14px !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 10px rgba(16,24,40,0.12) !important;
+        border: none !important;
+    }
+    div.stButton > button:active { transform: translateY(1px); }
+    /* 버튼 그룹을 조금 더 정돈된 느낌으로 */
+    .button-row { display:flex; gap:12px; align-items:center; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 APP_TITLE = "수학 개념 진단평가"
 DATA_DIR = "data"
@@ -89,9 +112,9 @@ def load_seed_items() -> pd.DataFrame:
     {"item_id":"ALG-003","area":"대수","subtopic":"인수분해","level":"L2","time_hint":45,
      "stem":"$x^2+7x+10$의 두 근을 구하시오.","choices":None,"answer":"$-5,\ -2$",
      "explanation":"곱이 $10$, 합이 $7$ → $-5,\ -2$","error_tags":["개념미이해","계산실수"]},
-        {"item_id":"ALG-004","area":"대수","subtopic":"등식의 변형","level":"L2","time_hint":40,
-         "stem":"$2x+5=19$일 때 x를 구하시오.","choices":None,"answer":"7",
-         "explanation":"$2x=14$ → $x=7$","error_tags":["절차오류"]},
+    {"item_id":"ALG-004","area":"대수","subtopic":"등식의 변형","level":"L2","time_hint":40,
+     "stem":"$2x+5=19$일 때 x를 구하시오.","choices":None,"answer":"$7$",
+     "explanation":"$2x=14$ → $x=7$","error_tags":["절차오류"]},
     {"item_id":"ALG-005","area":"대수","subtopic":"연립방정식","level":"L2","time_hint":60,
      "stem":"$x+y=7$, $x-y=1$을 풀어 $x,\ y$를 구하시오.","choices":None,"answer":"$(4,\ 3)$",
      "explanation":"가감법으로 $x=4$, $y=3$","error_tags":["절차오류","계산실수"]},
