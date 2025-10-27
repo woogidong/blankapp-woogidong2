@@ -81,15 +81,38 @@ def render_latex_or_text(s: Optional[str], *, label: Optional[str]=None) -> None
         return
     s = str(s)
     math_triggers = ["\\frac", "\\sqrt", "^", "_", "\\sum", "\\int", "\\lim", "\\rightarrow", "\\to", "\\pm", "\\ge", "\\le", "\\cdot", "\\times"]
-    if "$" in s or any(t in s for t in math_triggers):
+
+    # 레이블 출력
+    if label:
+        st.markdown(f"**{label}**")
+
+    # 이미 $...$ 가 포함되어 있으면, 상황에 맞게 렌더링
+    if "$" in s:
+        stripped = s.strip()
+        # 순수 수식(전체가 하나의 $...$로 감싸인 경우)은 st.latex로 블록 렌더링
+        if stripped.startswith("$") and stripped.endswith("$") and stripped.count("$") == 2:
+            inner = stripped.strip("$")
+            try:
+                st.latex(inner)
+                return
+            except Exception:
+                # 실패하면 마크다운으로 폴백
+                st.markdown(stripped)
+                return
+        # 텍스트와 수식이 섞여 있거나 여러 수식이 있는 경우는 마크다운으로 인라인 렌더링
+        st.markdown(s)
+        return
+
+    # $가 없지만 LaTeX 트리거가 포함되어 있으면 인라인 수식 형태로 마크다운에 감싸서 렌더링
+    if any(t in s for t in math_triggers):
         try:
-            if label: st.markdown(f"**{label}**")
-            st.latex(s.strip("$"))
+            st.markdown(f"${s}$")
             return
         except Exception:
             pass
-    if label: st.markdown(f"**{label}** {s}")
-    else: st.write(s)
+
+    # 기본 텍스트
+    st.write(s)
 
 # ================== Robust JSON-ish parser ==================
 def parse_jsonish_list(x: Any):
@@ -282,11 +305,17 @@ with TABS[0]:
         st.markdown(f"#### Q{quiz['current_idx']+1}.")
         render_latex_or_text(q.get("stem"), label="문제")
 
-        # -------- 핵심 수정: choices 처리 --------
+        # -------- choices 처리: LaTeX 보기를 보여주고 라디오로 선택하도록 --------
         choices = q.get("choices")
         if isinstance(choices, list) and len(choices) > 0:
-            # 객관식
-            user_answer = st.radio("정답 선택", choices, index=None, key=f"choice_{quiz['attempt_id']}_{quiz['current_idx']}")
+            # 객관식: 위에는 LaTeX 렌더된 보기, 아래에는 A/B/C 라디오로 선택
+            letters = [chr(ord('A') + i) for i in range(len(choices))]
+            for i, ch in enumerate(choices):
+                # 각 선택지를 LaTeX/텍스트 혼합으로 렌더
+                render_latex_or_text(f"{letters[i]}. {str(ch)}")
+            sel_label = st.radio("정답 선택 (위의 선택지를 확인하세요)", letters, index=None, key=f"choiceidx_{quiz['attempt_id']}_{quiz['current_idx']}")
+            # 선택한 레이블을 실제 문자열로 매핑
+            user_answer = choices[letters.index(sel_label)]
         else:
             # 주관식 (choices가 None, 빈칸, "None" 문자열이었던 경우 모두 여기로)
             user_answer = st.text_input("답 입력 (LaTeX 가능)", key=f"input_{quiz['attempt_id']}_{quiz['current_idx']}")
