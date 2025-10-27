@@ -293,8 +293,14 @@ with TABS[3]:
 items_df = load_items_from_upload(uploaded_df)
 
 # ================== Quiz Utilities ==================
-def build_quiz_pool(df: pd.DataFrame, area: str, levels: List[str], size: int) -> List[dict]:
-    subset = df[(df["area"]==area) & (df["level"].isin(levels))].copy()
+def build_quiz_pool(df: pd.DataFrame, area: Optional[str], levels: List[str], size: int) -> List[dict]:
+    """
+    Build a quiz pool. If area is None, sample across all areas (only filter by levels).
+    """
+    if area is None:
+        subset = df[df["level"].isin(levels)].copy()
+    else:
+        subset = df[(df["area"] == area) & (df["level"].isin(levels))].copy()
     if subset.empty:
         return []
     pool = subset.sample(n=min(size, len(subset)), replace=False, random_state=None)
@@ -305,7 +311,8 @@ with TABS[0]:
     st.subheader("영역별 퀴즈")
     cols = st.columns([1,1,1,1,1])
     with cols[0]:
-        area = st.selectbox("영역", sorted(items_df["area"].dropna().unique().tolist()))
+        # 영역 선택 옵션 제거: 문제는 무작위로 제시됩니다.
+        st.markdown("**영역: 무작위**")
     with cols[1]:
         levels = st.multiselect("난이도", ["L1","L2","L3"], default=["L1","L2","L3"])
     with cols[2]:
@@ -317,11 +324,12 @@ with TABS[0]:
 
     if start_btn:
         st.session_state.quiz.update({
-            "pool": build_quiz_pool(items_df, area, levels, size),
+            # area is None so pool is sampled across all areas randomly
+            "pool": build_quiz_pool(items_df, None, levels, size),
             "current_idx": 0,
             "start_ts": time.time() if include_timer else None,
             "attempt_id": str(uuid.uuid4()),
-            "area": area,
+            "area": None,
             "levels": levels,
             "size": size,
         })
