@@ -632,6 +632,58 @@ with TABS[4]:
             st.write(defi)
 
     st.markdown("---")
+
+    # ---------- CSV 업로드 추가 ----------
+    st.markdown("### 사전 CSV 업로드")
+    st.write("CSV 형식: 열명이 'term' 과 'definition' 이면 자동 인식합니다. 열명이 없으면 첫 두 열을 term/definition으로 사용합니다.")
+    uploaded_terms = st.file_uploader("용어 CSV 업로드", type=["csv"], key="terms_csv_upload")
+    if uploaded_terms is not None:
+        try:
+            df_terms = pd.read_csv(uploaded_terms)
+            cols_lower = [c.lower() for c in df_terms.columns]
+            if "term" in cols_lower and "definition" in cols_lower:
+                term_col = df_terms.columns[cols_lower.index("term")]
+                def_col = df_terms.columns[cols_lower.index("definition")]
+                df_terms = df_terms[[term_col, def_col]].rename(columns={term_col: "term", def_col: "definition"})
+            elif df_terms.shape[1] >= 2:
+                df_terms = df_terms.iloc[:, :2]
+                df_terms.columns = ["term", "definition"]
+            else:
+                st.error("CSV에 'term'과 'definition' 정보를 포함한 2개 열이 필요합니다.")
+                df_terms = None
+
+            if df_terms is not None:
+                st.dataframe(df_terms.head(20))
+                overwrite_csv = st.checkbox("기존 항목 덮어쓰기 (CSV 적용 시)", value=False, key="terms_csv_overwrite")
+                if st.button("CSV로 사전 등록 적용"):
+                    current = load_terms()
+                    added = updated = skipped = 0
+                    for _, r in df_terms.iterrows():
+                        k = str(r.get("term", "")).strip()
+                        v = str(r.get("definition", "")).strip()
+                        if not k or not v:
+                            continue
+                        if k in current:
+                            if overwrite_csv:
+                                current[k] = v
+                                updated += 1
+                            else:
+                                skipped += 1
+                        else:
+                            current[k] = v
+                            added += 1
+                    try:
+                        with open(TERMS_JSON, "w", encoding="utf-8") as f:
+                            json.dump(current, f, ensure_ascii=False, indent=2)
+                        st.success(f"업로드 완료 — 추가: {added}, 갱신: {updated}, 건너뜀: {skipped}")
+                        terms = current
+                    except Exception as e:
+                        st.error(f"용어 저장 실패: {e}")
+        except Exception as e:
+            st.error(f"CSV 읽기 실패: {e}")
+    # ---------- CSV 업로드 추가 끝 ----------
+
+    st.markdown("---")
     st.markdown("### 용어 등록")
     with st.form("add_term_form"):
         new_term = st.text_input("등록할 용어")
