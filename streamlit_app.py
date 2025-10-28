@@ -660,7 +660,8 @@ if selected_tab == "용어사전":
     terms = load_terms()
     query = st.text_input("찾을 용어를 입력하세요 (부분검색 가능)")
     if query:
-        matches = {k: v for k, v in terms.items() if query in k or query in v}
+        # 변경: definition이 아니라 term(키)에서만 검색하도록 함 (부분검색)
+        matches = {k: v for k, v in terms.items() if query in k}
     else:
         matches = {}
 
