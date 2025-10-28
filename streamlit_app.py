@@ -539,34 +539,43 @@ with TABS[1]:
                 sub = row["subtopic"] or "-"
                 cnt = int(row["cnt"])
                 st.markdown(f"- **{sub}** — 오답 {cnt}회")
-                # 보충학습 시작 버튼
+                # 보충학습 시작 버튼: 클릭 시 '해당 하위개념의 영역(area)'을 찾아 그 영역의 문항들에서 임의 추출
                 if st.button(f"{sub} 보충학습 시작", key=f"remed_{sub}"):
-                    # 해당 subtopic에서 문제를 샘플링하여 퀴즈로 연결
-                    subset = items_df[items_df["subtopic"] == sub]
-                    if subset.empty:
-                        st.warning("해당 하위개념의 문항이 없습니다.")
+                    # subtopic -> area 매핑 시도
+                    areas = items_df[items_df["subtopic"] == sub]["area"].dropna().unique().tolist()
+                    if not areas:
+                        st.warning("해당 하위개념의 문항이 등록되어 있지 않습니다.")
                     else:
-                        pool = subset.sample(n=min(5, len(subset)), replace=False).to_dict(orient="records")
-                        st.session_state.quiz.update({
-                            "pool": pool,
-                            "current_idx": 0,
-                            "start_ts": time.time() if include_timer else None,
-                            "attempt_id": str(uuid.uuid4()),
-                            "area": None,
-                            "levels": levels,
-                            "size": len(pool),
-                            "show_results": False,
-                        })
-                        st.success(f"보충학습 {sub} 세트를 시작합니다 ({len(pool)}문항)")
-                        try:
-                            st.experimental_rerun()
-                        except Exception:
-                            # 일부 환경에서 experimental_rerun이 없거나 동작하지 않을 수 있음
-                            # 안전하게 현재 실행 중단하여 UI가 재렌더되도록 함
+                        # 같은 하위개념이 여러 영역에 걸쳐 있을 수 있으므로 가장 빈도가 높은 영역을 선택
+                        # (없으면 첫 번째)
+                        if len(areas) > 1:
+                            # 빈도 기준 선택
+                            area_counts = items_df[items_df["subtopic"] == sub].groupby("area").size().sort_values(ascending=False)
+                            area = area_counts.index[0]
+                        else:
+                            area = areas[0]
+
+                        subset = items_df[items_df["area"] == area]
+                        if subset.empty:
+                            st.warning("해당 영역의 문항이 없습니다.")
+                        else:
+                            pool = subset.sample(n=min(5, len(subset)), replace=False).to_dict(orient="records")
+                            st.session_state.quiz.update({
+                                "pool": pool,
+                                "current_idx": 0,
+                                "start_ts": time.time(),  # 타이머는 항상 켜서 시작 시간 기록
+                                "attempt_id": str(uuid.uuid4()),
+                                "area": area,
+                                "size": len(pool),
+                            })
+                            st.success(f"보충학습 ({area}) 세트를 시작합니다 — {len(pool)}문항")
                             try:
-                                st.stop()
+                                st.experimental_rerun()
                             except Exception:
-                                pass
+                                try:
+                                    st.stop()
+                                except Exception:
+                                    pass
 
 # ================== Tab 3: Teacher Dashboard (Always visible) ==================
 with TABS[2]:
