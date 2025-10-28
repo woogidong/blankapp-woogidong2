@@ -74,7 +74,7 @@ def _now_str() -> str:
 
 REQUIRED_USER_COLS = ["user_id", "user_name", "role", "grade", "age", "created_at"]
 REQUIRED_ITEM_COLS = {
-    "item_id","area","subtopic","level","time_hint",
+    "item_id","area","subtopic","time_hint",
     "stem","choices","answer","explanation","error_tags"
 }
 
@@ -98,7 +98,7 @@ def load_users_df() -> pd.DataFrame:
 if not os.path.exists(RESPONSES_CSV):
     pd.DataFrame(columns=[
         "ts","user_id","user_name","role","area","subtopic","item_id","is_correct",
-        "response","response_time","error_tag","level","attempt_id"
+        "response","response_time","error_tag","attempt_id"
     ]).to_csv(RESPONSES_CSV, index=False, encoding="utf-8-sig")
 
 if not os.path.exists(USERS_CSV):
@@ -110,7 +110,7 @@ if "user" not in st.session_state:
 if "quiz" not in st.session_state:
     st.session_state.quiz = {
         "pool": [], "current_idx": 0, "start_ts": None, "attempt_id": None,
-        "area": None, "levels": ["L1","L2","L3"], "size": 8
+        "area": None, "size": 8
     }
 if "responses" not in st.session_state:
     st.session_state.responses = []
@@ -193,22 +193,22 @@ def parse_jsonish_list(x: Any):
 # ================== Seed Items ==================
 def load_seed_items() -> pd.DataFrame:
     seed = [
-        {"item_id":"ALG-001","area":"수와 연산","subtopic":"다항식 전개","level":"L1","time_hint":30,
+        {"item_id":"ALG-001","area":"수와 연산","subtopic":"다항식 전개","time_hint":30,
          "stem":"(x+2)(x-3)를 전개하시오.","choices":None,"answer":"$x^2 - x - 6$",
          "explanation":"$x(x-3)+2(x-3)=x^2-3x+2x-6=x^2-x-6$","error_tags":["절차오류","계산실수"]},
-        {"item_id":"ALG-002","area":"수와 연산","subtopic":"인수분해","level":"L1","time_hint":35,
+        {"item_id":"ALG-002","area":"수와 연산","subtopic":"인수분해","time_hint":35,
          "stem":"$x^2-5x+6$ 을 인수분해하시오.","choices":None,"answer":"$(x-2)(x-3)$",
          "explanation":"곱 6, 합 5 → 2와 3","error_tags":["개념미이해"]},
-        {"item_id":"FUN-004","area":"변화와 관계","subtopic":"최대최소","level":"L3","time_hint":75,
+        {"item_id":"FUN-004","area":"변화와 관계","subtopic":"최대최소","time_hint":75,
          "stem":"함수 $f(x)=x^2-4x+5$ 의 최솟값은?","choices":None,"answer":"$1$",
          "explanation":"$(x-2)^2+1$ → 최솟값 1","error_tags":["개념미이해"]},
-        {"item_id":"GEO-002","area":"도형과 측정","subtopic":"피타고라스","level":"L1","time_hint":45,
+        {"item_id":"GEO-002","area":"도형과 측정","subtopic":"피타고라스","time_hint":45,
          "stem":"직각삼각형에서 빗변이 13, 한 변이 5일 때 다른 변은?","choices":None,"answer":"$12$",
          "explanation":"$13^2-5^2=169-25=144 → 12$","error_tags":["계산실수"]},
-        {"item_id":"STA-004","area":"자료와 가능성","subtopic":"표준편차","level":"L2","time_hint":70,
+        {"item_id":"STA-004","area":"자료와 가능성","subtopic":"표준편차","time_hint":70,
          "stem":"데이터 $1,3,5$ 의 표준편차(모표준편차)를 구하시오.","choices":None,"answer":"$\\approx 1.632$",
          "explanation":"평균 3, 분산 $8/3$ → $\\sigma=\\sqrt{8/3}\\approx1.632$","error_tags":["계산실수"]},
-        {"item_id":"FUN-002","area":"변화와 관계","subtopic":"일차함수","level":"L2","time_hint":60,
+        {"item_id":"FUN-002","area":"변화와 관계","subtopic":"일차함수","time_hint":60,
          "stem":"$y=3x-2$ 의 기울기는?","choices":["$-2$","$0$","$3$","$\\tfrac{2}{3}$"],"answer":"$3$",
          "explanation":"$y=mx+b$ 에서 $m=3$","error_tags":["개념미이해"]},
     ]
@@ -221,9 +221,9 @@ def sanitize_and_parse_items(df: pd.DataFrame) -> pd.DataFrame:
     missing = REQUIRED_ITEM_COLS - set(df.columns)
     for c in missing:
         df[c] = np.nan
-    # 컬럼 순서 표준화
+    # 컬럼 순서 표준화 (난이도(level) 제거)
     df = df[[
-        "item_id","area","subtopic","level","time_hint",
+        "item_id","area","subtopic","time_hint",
         "stem","choices","answer","explanation","error_tags"
     ]]
     # 이상 행 제거
@@ -309,14 +309,15 @@ with TABS[3]:
 items_df = load_items_from_upload(uploaded_df)
 
 # ================== Quiz Utilities ==================
-def build_quiz_pool(df: pd.DataFrame, area: Optional[str], levels: List[str], size: int) -> List[dict]:
+def build_quiz_pool(df: pd.DataFrame, area: Optional[str], size: int) -> List[dict]:
     """
-    Build a quiz pool. If area is None, sample across all areas (only filter by levels).
+    Build a quiz pool. If area is None, sample across all areas.
+    (난이도 필터링 제거 — 모든 난이도 포함)
     """
     if area is None:
-        subset = df[df["level"].isin(levels)].copy()
+        subset = df.copy()
     else:
-        subset = df[(df["area"] == area) & (df["level"].isin(levels))].copy()
+        subset = df[(df["area"] == area)].copy()
     if subset.empty:
         return []
     pool = subset.sample(n=min(size, len(subset)), replace=False, random_state=None)
@@ -330,7 +331,8 @@ with TABS[0]:
         # 영역 선택 옵션 제거: 문제는 무작위로 제시됩니다.
         st.markdown("**영역: 무작위**")
     with cols[1]:
-        levels = st.multiselect("난이도", ["L1","L2","L3"], default=["L1","L2","L3"])
+        # 난이도 선택 제거 (더 이상 필요 없음)
+        st.markdown("**난이도: 모두 포함**")
     with cols[2]:
         size = st.number_input("문항 수", min_value=3, max_value=20, value=8, step=1)
     with cols[3]:
@@ -341,12 +343,11 @@ with TABS[0]:
     if start_btn:
         st.session_state.quiz.update({
             # area is None so pool is sampled across all areas randomly
-            "pool": build_quiz_pool(items_df, None, levels, size),
+            "pool": build_quiz_pool(items_df, None, size),
             "current_idx": 0,
             "start_ts": time.time() if include_timer else None,
             "attempt_id": str(uuid.uuid4()),
             "area": None,
-            "levels": levels,
             "size": size,
         })
         st.success(f"퀴즈 생성: {len(st.session_state.quiz['pool'])}문항")
@@ -413,7 +414,6 @@ with TABS[0]:
                 "response": ans_str,
                 "response_time": resp_time,
                 "error_tag": None if err_tag=="선택안함" else err_tag,
-                "level": q["level"],
                 "attempt_id": quiz["attempt_id"],
             }
 
