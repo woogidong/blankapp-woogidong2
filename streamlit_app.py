@@ -193,22 +193,22 @@ def parse_jsonish_list(x: Any):
 # ================== Seed Items ==================
 def load_seed_items() -> pd.DataFrame:
     seed = [
-        {"item_id":"ALG-001","area":"대수","subtopic":"다항식 전개","level":"L1","time_hint":30,
+        {"item_id":"ALG-001","area":"수와 연산","subtopic":"다항식 전개","level":"L1","time_hint":30,
          "stem":"(x+2)(x-3)를 전개하시오.","choices":None,"answer":"$x^2 - x - 6$",
          "explanation":"$x(x-3)+2(x-3)=x^2-3x+2x-6=x^2-x-6$","error_tags":["절차오류","계산실수"]},
-        {"item_id":"ALG-002","area":"대수","subtopic":"인수분해","level":"L1","time_hint":35,
+        {"item_id":"ALG-002","area":"수와 연산","subtopic":"인수분해","level":"L1","time_hint":35,
          "stem":"$x^2-5x+6$ 을 인수분해하시오.","choices":None,"answer":"$(x-2)(x-3)$",
          "explanation":"곱 6, 합 5 → 2와 3","error_tags":["개념미이해"]},
-        {"item_id":"FUN-004","area":"함수","subtopic":"최대최소","level":"L3","time_hint":75,
+        {"item_id":"FUN-004","area":"변화와 관계","subtopic":"최대최소","level":"L3","time_hint":75,
          "stem":"함수 $f(x)=x^2-4x+5$ 의 최솟값은?","choices":None,"answer":"$1$",
          "explanation":"$(x-2)^2+1$ → 최솟값 1","error_tags":["개념미이해"]},
-        {"item_id":"GEO-002","area":"기하","subtopic":"피타고라스","level":"L1","time_hint":45,
+        {"item_id":"GEO-002","area":"도형과 측정","subtopic":"피타고라스","level":"L1","time_hint":45,
          "stem":"직각삼각형에서 빗변이 13, 한 변이 5일 때 다른 변은?","choices":None,"answer":"$12$",
          "explanation":"$13^2-5^2=169-25=144 → 12$","error_tags":["계산실수"]},
-        {"item_id":"STA-004","area":"확률과 통계","subtopic":"표준편차","level":"L2","time_hint":70,
+        {"item_id":"STA-004","area":"자료와 가능성","subtopic":"표준편차","level":"L2","time_hint":70,
          "stem":"데이터 $1,3,5$ 의 표준편차(모표준편차)를 구하시오.","choices":None,"answer":"$\\approx 1.632$",
          "explanation":"평균 3, 분산 $8/3$ → $\\sigma=\\sqrt{8/3}\\approx1.632$","error_tags":["계산실수"]},
-        {"item_id":"FUN-002","area":"함수","subtopic":"일차함수","level":"L2","time_hint":60,
+        {"item_id":"FUN-002","area":"변화와 관계","subtopic":"일차함수","level":"L2","time_hint":60,
          "stem":"$y=3x-2$ 의 기울기는?","choices":["$-2$","$0$","$3$","$\\tfrac{2}{3}$"],"answer":"$3$",
          "explanation":"$y=mx+b$ 에서 $m=3$","error_tags":["개념미이해"]},
     ]
