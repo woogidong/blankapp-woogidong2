@@ -300,7 +300,10 @@ selected_tab = st.radio(
     horizontal=True,
     key="tab_selector"
 )
-st.session_state["tab_selector"] = selected_tab
+# st.radio(...)은 key="tab_selector"로 선택값을 session_state에 자동으로 저장합니다.
+# Streamlit 내부 제약으로 같은 키에 대해 즉시 다시 쓰기(setitem)하면 예외가 발생할 수 있으므로
+# 여기서는 쓰지 말고 읽기만 합니다.
+selected_tab = st.session_state.get("tab_selector", TAB_NAMES[0])
 
 # ================== Items Upload Tab ==================
 # 이전: with TABS[3]:
