@@ -288,10 +288,23 @@ if user["user_name"]:
     st.caption(" · ".join(filter(None, [f"접속: {user['user_name']}", "역할: 학생"] + extra)))
 
 # ================== Tabs ==================
-TABS = st.tabs(["퀴즈", "결과/보강", "교사 대시보드", "문항 업로드", "용어사전"])
+# 기존: TABS = st.tabs(["퀴즈", "결과/보강", "교사 대시보드", "문항 업로드", "용어사전"])
+# -> 라디오 기반 탭 선택으로 교체 (프로그램적으로 탭 변경 가능)
+TAB_NAMES = ["퀴즈", "결과/보강", "교사 대시보드", "문항 업로드", "용어사전"]
+if "tab_selector" not in st.session_state:
+    st.session_state["tab_selector"] = TAB_NAMES[0]
+selected_tab = st.radio(
+    "탭 선택",
+    TAB_NAMES,
+    index=TAB_NAMES.index(st.session_state["tab_selector"]) if st.session_state.get("tab_selector") in TAB_NAMES else 0,
+    horizontal=True,
+    key="tab_selector"
+)
+st.session_state["tab_selector"] = selected_tab
 
 # ================== Items Upload Tab ==================
-with TABS[3]:
+# 이전: with TABS[3]:
+if selected_tab == "문항 업로드":
     st.subheader("문항 업로드 (CSV)")
     st.write("필수 컬럼: item_id, area, subtopic, level, time_hint, stem, choices, answer, explanation, error_tags")
     st.write("- **주관식**: choices를 공란/`None`(문자열) → 자동으로 입력창 표시")
@@ -306,7 +319,7 @@ with TABS[3]:
         except Exception as e:
             st.error(f"업로드 실패: {e}")
 
-items_df = load_items_from_upload(uploaded_df)
+    items_df = load_items_from_upload(uploaded_df)
 
 # ================== Quiz Utilities ==================
 def build_quiz_pool(df: pd.DataFrame, area: Optional[str], size: int) -> List[dict]:
@@ -324,7 +337,8 @@ def build_quiz_pool(df: pd.DataFrame, area: Optional[str], size: int) -> List[di
     return pool.to_dict(orient="records")
 
 # ================== Tab 1: Quiz ==================
-with TABS[0]:
+# 이전: with TABS[0]:
+if selected_tab == "퀴즈":
     st.subheader("영역별 퀴즈")
     cols = st.columns([1,1,1,1,1])
     with cols[0]:
@@ -482,7 +496,8 @@ def mastery_scores(df: pd.DataFrame) -> pd.DataFrame:
     return grp
 
 # ================== Tab 2: Results / Remediation ==================
-with TABS[1]:
+# 이전: with TABS[1]:
+if selected_tab == "결과/보강":
     st.subheader("결과 리포트 & 보강 제안")
     try:
         all_resp = pd.read_csv(RESPONSES_CSV)
@@ -568,7 +583,9 @@ with TABS[1]:
                                 "area": area,
                                 "size": len(pool),
                             })
-                            st.success(f"보충학습 ({area}) 세트를 시작합니다 — {len(pool)}문항")
+                            # 자동으로 퀴즈 탭으로 이동
+                            st.session_state["tab_selector"] = "퀴즈"
+                            st.success(f"보충학습 ({area}) 세트를 시작합니다 — {len(pool)}문항. 이제 '퀴즈' 탭으로 이동합니다.")
                             try:
                                 st.experimental_rerun()
                             except Exception:
@@ -578,7 +595,8 @@ with TABS[1]:
                                     pass
 
 # ================== Tab 3: Teacher Dashboard (Always visible) ==================
-with TABS[2]:
+# 이전: with TABS[2]:
+if selected_tab == "교사 대시보드":
     st.subheader("교사 대시보드")
     try:
         df = pd.read_csv(RESPONSES_CSV)
@@ -622,7 +640,8 @@ with TABS[2]:
         st.altair_chart(heat, use_container_width=True)
 
 # ================== Tab 4: Math Terms Dictionary ==================
-with TABS[4]:
+# 이전: with TABS[4]:
+if selected_tab == "용어사전":
     st.subheader("수학 용어사전")
     terms = load_terms()
     query = st.text_input("찾을 용어를 입력하세요 (부분검색 가능)")
