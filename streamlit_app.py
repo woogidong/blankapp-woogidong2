@@ -306,23 +306,34 @@ selected_tab = st.radio(
 selected_tab = st.session_state.get("tab_selector", TAB_NAMES[0])
 
 # ================== Items Upload Tab ==================
-# 이전: with TABS[3]:
+# 업로드한 문항 DataFrame을 세션에 보관하여 다른 탭으로 이동해도 사라지지 않도록 수정
+if "uploaded_items_df" not in st.session_state:
+    st.session_state["uploaded_items_df"] = None
+
 if selected_tab == "문항 업로드":
     st.subheader("문항 업로드 (CSV)")
-    st.write("필수 컬럼: item_id, area, subtopic, level, time_hint, stem, choices, answer, explanation, error_tags")
+    st.write("필수 컬럼: item_id, area, subtopic, time_hint, stem, choices, answer, explanation, error_tags")
     st.write("- **주관식**: choices를 공란/`None`(문자열) → 자동으로 입력창 표시")
     st.write("- **객관식**: choices를 JSON 배열로 (예: `[\"$1$\",\"$2$\",\"$3$\",\"$4$\"]` )")
-    uploaded_file = st.file_uploader("CSV 업로드", type=["csv"])
-    uploaded_df = None
-    if uploaded_file:
+
+    uploaded_file = st.file_uploader("CSV 업로드", type=["csv"], key="items_csv_uploader")
+    if uploaded_file is not None:
         try:
-            uploaded_df = pd.read_csv(uploaded_file)
-            st.success(f"업로드 성공: {uploaded_df.shape}")
-            st.dataframe(uploaded_df.head())
+            df = pd.read_csv(uploaded_file)
+            st.session_state["uploaded_items_df"] = df
+            st.success(f"업로드 성공: {df.shape}")
+            st.dataframe(df.head())
         except Exception as e:
             st.error(f"업로드 실패: {e}")
 
-    items_df = load_items_from_upload(uploaded_df)
+    # 업로드 파일 초기화 버튼 추가 (원치 않으면 삭제하지 않음)
+    if st.session_state.get("uploaded_items_df") is not None:
+        if st.button("업로드 파일 초기화", key="clear_items_upload"):
+            st.session_state["uploaded_items_df"] = None
+            st.success("업로드된 문항 파일을 초기화했습니다.")
+
+# 모든 탭에서 items_df를 사용할 수 있도록 항상 items_df를 세션에 기반해 생성
+items_df = load_items_from_upload(st.session_state.get("uploaded_items_df", None))
 
 # ================== Quiz Utilities ==================
 def build_quiz_pool(df: pd.DataFrame, area: Optional[str], size: int) -> List[dict]:
